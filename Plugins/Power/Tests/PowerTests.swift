@@ -101,7 +101,7 @@ enum PowerTests {
     }
 
     private static func testContributorsFollowTheProcessFeed() {
-        let feed = Feed(initial: ProcessSummary())
+        let (feed, send) = Feed.forTesting(initial: ProcessSummary())
         let host = makeHost(processes: feed)
         let plugin = PowerPlugin(host: host)
         let rows = [
@@ -109,7 +109,7 @@ enum PowerTests {
             ProcessSnapshot(name: "idle", count: 1, physical: 500, virtualSize: 0, cpu: 0),
         ]
 
-        feed.send(ProcessSummary(rows: rows, memoryLimit: rows.count, cpuLimit: rows.count))
+        send(ProcessSummary(rows: rows, memoryLimit: rows.count, cpuLimit: rows.count))
 
         let deadline = Date().addingTimeInterval(1)
         while plugin.contributors.isEmpty && Date() < deadline {

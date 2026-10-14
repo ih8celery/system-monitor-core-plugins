@@ -281,14 +281,14 @@ enum NetworkTests {
     private static func testPluginFollowsTheFastFeed() {
         var start = FastStatsSnapshot()
         start.currentDownloadRate = 5
-        let feed = Feed(initial: start)
+        let (feed, send) = Feed.forTesting(initial: start)
         let plugin = NetworkPlugin(host: makeHost(fastStats: feed))
         expect(plugin.fastStats.currentDownloadRate == 5, "a new plugin starts from the feed's latest reading")
 
         var next = FastStatsSnapshot()
         next.currentDownloadRate = 2_048
         next.downloadHistory = [5, 2_048]
-        feed.send(next)
+        send(next)
         waitUntil { plugin.fastStats.currentDownloadRate == 2_048 }
         expect(plugin.fastStats.downloadHistory == [5, 2_048], "the rate cards and graph follow the 1-second feed, got \(plugin.fastStats.downloadHistory)")
     }

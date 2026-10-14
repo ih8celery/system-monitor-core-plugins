@@ -146,17 +146,17 @@ enum CPUTests {
     private static func testPluginFollowsBothFeeds() {
         var start = FastStatsSnapshot()
         start.cpuUsagePercent = 10
-        let fastStats = Feed(initial: start)
-        let processes = Feed(initial: ProcessSummary())
+        let (fastStats, sendFastStats) = Feed.forTesting(initial: start)
+        let (processes, sendProcesses) = Feed.forTesting(initial: ProcessSummary())
         let plugin = CPUPlugin(host: makeHost(processes: processes, fastStats: fastStats))
         expect(plugin.fastStats.cpuUsagePercent == 10, "a new plugin starts from the feed's latest reading")
 
         var busy = FastStatsSnapshot()
         busy.cpuUsagePercent = 73
         busy.cpuHistory = [10, 73]
-        fastStats.send(busy)
+        sendFastStats(busy)
         let row = ProcessSnapshot(name: "swift-frontend", count: 3, physical: 1, virtualSize: 0, cpu: 250)
-        processes.send(ProcessSummary(rows: [row], memoryLimit: 1, cpuLimit: 1))
+        sendProcesses(ProcessSummary(rows: [row], memoryLimit: 1, cpuLimit: 1))
 
         waitUntil { plugin.fastStats.cpuUsagePercent == 73 && !plugin.processes.topCPU.isEmpty }
         expect(plugin.fastStats.cpuHistory == [10, 73], "the headline and graph follow the 1-second feed, got \(plugin.fastStats.cpuHistory)")
