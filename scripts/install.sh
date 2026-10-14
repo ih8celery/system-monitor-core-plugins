@@ -7,7 +7,9 @@
 #
 # Installing also drops plugins.json entries that name one of these tabs as a bundle inside the
 # app ({"name": "CPU.bundle"}): SystemBar no longer ships them, so such an entry is only an error
-# tab. A path entry already in the list is left as it is, so edits such as "enabled" survive.
+# tab. A name entry for a tab being installed becomes its path entry, keeping its other keys; one
+# for a tab not being installed is dropped and named in the output. A path entry already in the
+# list is left as it is, so edits such as "enabled" survive.
 #
 # SYSTEMBAR_APP, SYSTEMBAR_REPO, SYSTEMBAR_PLUGINS_DIR and SYSTEMBAR_PLUGINS_FILE move what it
 # touches (the last two are names SystemBar itself reads). CORE_PLUGINS_PREBUILT takes bundles
@@ -49,7 +51,9 @@ ensure_plugins_file() {
 rewrite_plugins_file() {
   local filter="$1" tmp="$plugins_file.core-plugins.tmp"
   shift
-  if jq "$@" "$filter" "$plugins_file" > "$tmp" && mv -f "$tmp" "$plugins_file"; then
+  # Written through, not moved over, so a plugins.json that is a symlink stays one.
+  if jq "$@" "$filter" "$plugins_file" > "$tmp" && cat "$tmp" > "$plugins_file"; then
+    rm -f "$tmp"
     return 0
   fi
   rm -f "$tmp"
@@ -103,6 +107,10 @@ stage_tabs() {
 install_tabs() {
   local stage name
   ensure_plugins_file
+  dropped=$(jq -r --argjson tabs "$(tab_list "$@")" --argjson all "$(jq -n '$ARGS.positional' --args "${ALL_TABS[@]}")" '
+    ($tabs | map(.name)) as $wanted | ($all | map("\(.).bundle")) as $ours
+    | [.plugins[] | .name // empty | . as $n | select(($ours | index($n)) != null and ($wanted | index($n)) == null)]
+    | unique | join(" ")' "$plugins_file")
   stage=$(mktemp -d)
   trap "rm -rf '$stage'" EXIT
   stage_tabs "$stage" "$@"
@@ -121,12 +129,13 @@ install_tabs() {
         reduce .[] as $entry ([];
           if ($entry | has("name")) and ($ours | index($entry.name)) != null then
             ($wanted[$entry.name]) as $p
-            | if $p != null and (listed($p) | not) then . + [{path: $p}] else . end
+            | if $p != null and (listed($p) | not) then . + [$entry | del(.name) | . + {path: $p}] else . end
           elif ($entry | has("path")) and ([$wanted[]] | index($entry.path)) != null and listed($entry.path) then .
           else . + [$entry] end)
         | reduce $tabs[].path as $p (.; if listed($p) then . else . + [{path: $p}] end))' \
     --argjson tabs "$(tab_list "$@")" --argjson all "$(jq -n '$ARGS.positional' --args "${ALL_TABS[@]}")"
   echo "Installed $* into $plugins_dir."
+  [[ -z "$dropped" ]] || echo "Removed the entries for $dropped from plugins.json: SystemBar no longer ships them; scripts/install.sh install <Name> adds one back."
   relaunch
 }
 

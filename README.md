@@ -28,8 +28,9 @@ Installing builds each tab against `~/Applications/SystemBar.app`, puts it in
 `~/Library/Application Support/SystemBar/PlugIns/<Name>.bundle`, lists it in `plugins.json` by
 path, and relaunches SystemBar. A path entry already in the list is kept as it is, so turning a
 tab off with `"enabled": false` survives a reinstall. An old entry naming one of these tabs as a
-bundle inside the app (`{"name": "CPU.bundle"}`) becomes its path entry in the same place, or is
-dropped for a tab not being installed, since SystemBar no longer ships any tabs of its own.
+bundle inside the app (`{"name": "CPU.bundle"}`) becomes its path entry in the same place, keeping
+its `enabled` and `settings`, or is dropped (and named in the output) for a tab not being installed,
+since SystemBar no longer ships any tabs of its own. A `plugins.json` that is a symlink stays one.
 
 Each tab keeps what it saves in `~/Library/Application Support/SystemBar/PluginData/<id>/`, as
 before; the move does not touch it.

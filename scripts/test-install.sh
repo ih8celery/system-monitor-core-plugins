@@ -87,6 +87,22 @@ scripts/install.sh install > /dev/null
 [[ "$(jq -c '[.plugins[] | select(.name)]' "$SYSTEMBAR_PLUGINS_FILE")" == "[]" ]] || fail "fresh file kept name entries: $(plugins)"
 [[ "$(jq -c '[.plugins[] | select(.path)]' "$SYSTEMBAR_PLUGINS_FILE")" == "[$four]" ]] || fail "fresh file: $(plugins)"
 
+# 10. A name entry's other keys carry over to its path entry, and a dropped entry is reported.
+cat > "$SYSTEMBAR_PLUGINS_FILE" <<JSON
+{ "plugins": [ { "name": "CPU.bundle", "enabled": false, "settings": { "a": 1 } }, { "name": "Dev.bundle" } ] }
+JSON
+out=$(scripts/install.sh install CPU)
+[[ "$(plugins)" == "[{\"enabled\":false,\"settings\":{\"a\":1},\"path\":\"$SYSTEMBAR_PLUGINS_DIR/CPU.bundle\"}]" ]] ||
+  fail "a name entry's keys were lost: $(plugins)"
+[[ "$out" == *"Dev.bundle"* ]] || fail "the dropped Dev entry was not reported: $out"
+
+# 11. A plugins.json that is a symlink stays one, and its target is what changes.
+echo '{ "plugins": [] }' > "$tmp/real.json"
+ln -sf "$tmp/real.json" "$SYSTEMBAR_PLUGINS_FILE"
+scripts/install.sh install CPU > /dev/null
+[[ -L "$SYSTEMBAR_PLUGINS_FILE" ]] || fail "plugins.json is no longer a symlink"
+[[ "$(jq -c '.plugins' "$tmp/real.json")" == "[$(path_entry CPU)]" ]] || fail "the symlink's target was not rewritten: $(cat "$tmp/real.json")"
+
 if (( failures > 0 )); then
   echo "Installer checks failed: $failures" >&2
   exit 1
