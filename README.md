@@ -1,6 +1,6 @@
 # SystemBar core plugins
 
-The tabs that used to ship inside [SystemBar](../swift-ui-system-monitor): Memory, Disk, Network
+The tabs that used to ship inside [SystemBar](https://github.com/ih8celery/swift-ui-system-monitor): Memory, Disk, Network
 and CPU, plus Power and Dev, which are kept and tested but not installed by default. Each is an
 ordinary SystemBar plugin, built against the SDK inside the installed app and installed into
 SystemBar's plugin folder like any other.
