@@ -21,6 +21,8 @@ struct PowerSnapshot {
     var isExternal: Bool?
     /// True within the lag window of a plug or unplug, while the telemetry catches up.
     var isSettling = false
+    /// What the notification rules read; nil for a Mac with no battery.
+    var batteryAlert: BatteryAlertReading?
     var sleepAssertions: [String] = []
     var status = "Waiting for power sample"
     var health = SampleHealth.degraded

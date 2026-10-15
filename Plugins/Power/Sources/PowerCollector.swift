@@ -35,6 +35,7 @@ enum PowerCollector {
             hasDriverReading: driver.succeeded,
             isExternal: isExternal,
             isSettling: settling,
+            batteryAlert: BatteryAlertReading(entry: driverEntry),
             sleepAssertions: parsedAssertions,
             status: status.isEmpty ? "Power sample OK" : status.joined(separator: ", "),
             health: SampleHealth(isOK: status.isEmpty)

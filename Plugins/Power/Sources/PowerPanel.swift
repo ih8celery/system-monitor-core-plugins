@@ -49,6 +49,11 @@ struct PowerPanel: View {
                 Text(plugin.snapshot.status)
                     .font(.caption)
                     .foregroundStyle(plugin.snapshot.health == .ok ? .secondary : Palette.warning)
+                ForEach(plugin.settingsProblems, id: \.self) { problem in
+                    Text(problem)
+                        .font(.caption)
+                        .foregroundStyle(Palette.warning)
+                }
             }
             .padding(18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
