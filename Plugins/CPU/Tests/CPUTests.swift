@@ -28,6 +28,7 @@ enum CPUTests {
         testGPUHistoryKeepsTheNewestSamples()
         testGPUIsSampledEverySecondOnlyWhileShowing()
         testProcessMemoryReadsTheWayActivityMonitorDoes()
+        testDrillInMemoryIsTheFootprintTheListShows()
     }
 
     // A `ps -eo pid,ppid,pcpu,rss,etime,args` sample. Leading fields are
@@ -379,5 +380,21 @@ enum CPUTests {
         expect(CPUFormat.processMemory(bytes) == "Memory \(memoryByteString(bytes))", "a list row's memory uses the memory style, got \(CPUFormat.processMemory(bytes))")
         expect(CPUFormat.drillSummary(memory: bytes, uptime: "2h 5m") == "\(memoryByteString(bytes)) · up 2h 5m", "the drill-in header uses the memory style, got \(CPUFormat.drillSummary(memory: bytes, uptime: "2h 5m"))")
         expect(CPUFormat.processMemory(bytes) != "Memory \(fileByteString(bytes))", "memory is not worded as a file size")
+    }
+
+    private static func testDrillInMemoryIsTheFootprintTheListShows() {
+        // psSample's two clang processes are 200 (40000 KB resident) and 201; the footprints are
+        // deliberately unlike the resident sizes so a test can tell which one the row carries.
+        let footprints: [Int32: UInt64] = [200: 123_000_000, 201: 456_000_000]
+        let command = "/bin/ps -eo pid,ppid,pcpu,rss,etime,args"
+        let host = makeHost(runner: recordingRunner(LogRecorder(), answers: [command: psSample]))
+        let rows = ProcessDetail.fetchGroupDetail(name: "clang", using: host, footprint: { footprints[$0] })
+        expect(Dictionary(uniqueKeysWithValues: rows.map { ($0.pid, $0.memory) }) == footprints, "each drill-in row shows the footprint the list counts, not the resident size, got \(rows.map { ($0.pid, $0.memory) })")
+        expect(rows.reduce(0) { $0 + $1.memory } == footprints.values.reduce(0, +), "the rows add up to the list row's figure for the group")
+
+        let partial = ProcessDetail.fetchGroupDetail(name: "clang", using: host, footprint: { $0 == 200 ? 123_000_000 : nil })
+        let unread = partial.first { $0.pid == 201 }
+        let resident = ProcessTable.parse(psSample)[201]?.memory
+        expect(unread?.memory == resident && resident != nil, "a process whose footprint cannot be read falls back to its resident size, got \(String(describing: unread?.memory))")
     }
 }
