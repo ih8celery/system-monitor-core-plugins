@@ -5,7 +5,8 @@ import SystemBarKit
 
 /// The Network tab as a bundle. The host calls `collect()` on this plugin's queue every 30 s while
 /// the tab shows; each collect runs nettop and lsof, publishes on main, then asks the collector for
-/// the destinations' hostnames, which it looks up on its own DNS queue. The rate cards and graph
+/// the destinations' hostnames, which it looks up on its own DNS queue. Each collect also reads the
+/// Wi-Fi link from CoreWLAN, which is nil on Ethernet. The rate cards and graph
 /// follow the host's 1-second feed, and the speed test runs only when the panel's button is
 /// pressed, on its own queue.
 @objc(SystemBarNetworkPlugin)
@@ -20,15 +21,23 @@ public final class NetworkPlugin: NSObject, TabPlugin, ObservableObject {
     @Published private(set) var summary = NetworkSummary()
     @Published private(set) var fastStats = FastStatsSnapshot()
     @Published private(set) var speedTest = SpeedTestState()
+    @Published private(set) var wifi: WiFiSignal?
     private let host: HostServices
     private let collector: NetworkCollector
+    private let readWiFi: @Sendable () -> WiFiSignal?
     /// A speed test runs for up to 30 seconds, so it gets its own queue rather than holding up
     /// the plugin's collects.
     private let speedTestQueue = DispatchQueue(label: "systembar.network.speedtest", qos: .utility)
     private var feedSubscription: AnyCancellable?
 
-    @MainActor public init(host: HostServices) {
+    @MainActor public convenience init(host: HostServices) {
+        self.init(host: host, readWiFi: { WiFiReader.current() })
+    }
+
+    /// Tests pass their own Wi-Fi reading in place of CoreWLAN's.
+    @MainActor init(host: HostServices, readWiFi: @escaping @Sendable () -> WiFiSignal?) {
         self.host = host
+        self.readWiFi = readWiFi
         collector = NetworkCollector(host: host)
         super.init()
         fastStats = host.fastStats.value
@@ -39,7 +48,9 @@ public final class NetworkPlugin: NSObject, TabPlugin, ObservableObject {
 
     public func collect() {
         let reading = collector.sample()
+        let wifi = readWiFi()
         DispatchQueue.main.async { [weak self] in
+            self?.wifi = wifi
             self?.show(reading)
         }
     }
