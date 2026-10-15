@@ -19,6 +19,10 @@ struct PowerPanel: View {
                     }
                 }
 
+                if let detail = plugin.snapshot.batteryDetail {
+                    BatteryDetailView(detail: detail, state: plugin.snapshot.chargeState)
+                }
+
                 SectionTitle("Sleep Assertions")
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
