@@ -18,6 +18,7 @@ enum NetworkRulesTests {
         testSlowInternetIgnoresFailuresAndCanBeTurnedOff()
         testPluginPostsWhileHidden()
         testPluginPostsNothingWhenThereIsNoRoute()
+        testPluginSaysNoRouterFoundWhenThereIsNone()
         testPluginReportsBadRuleSettings()
     }
 
@@ -185,6 +186,16 @@ enum NetworkRulesTests {
         let plugin = NetworkPlugin(host: host, probes: probes(gateway: nil) { _, _ in .noRoute("Network is unreachable") })
         for _ in 0..<5 { plugin.collect() }
         expect(posted().isEmpty, "no IPv4 route is not an outage, got \(posted())")
+    }
+
+    /// A full-tunnel VPN: no router found, the internet pinged and failing. The router was never
+    /// pinged, so the notification must not say it failed to answer.
+    private static func testPluginSaysNoRouterFoundWhenThereIsNone() {
+        let (host, posted) = notifyingHost()
+        let plugin = NetworkPlugin(host: host, probes: probes(gateway: nil) { _, _ in .timeout })
+        for _ in 0..<3 { plugin.collect() }
+        expect(posted().first?.body.contains(LatencyDiagnosis.noRouter.text) == true, "got \(String(describing: posted().first?.body))")
+        expect(posted().first?.body.contains("Neither the router") == false, "not that the router failed")
     }
 
     private static func testPluginReportsBadRuleSettings() {

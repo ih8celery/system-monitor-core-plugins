@@ -47,10 +47,15 @@ struct LatencySample: Equatable, Sendable {
     let internet: LatencyPoint
 
     /// Only a failing internet needs explaining: a router that answers puts the fault past it,
-    /// and one that does not (or cannot be found) puts it on this side of it.
+    /// and one that does not puts it on this side of it. With no router found there was none to
+    /// ask, so it says only that.
     var diagnosis: LatencyDiagnosis? {
         guard internet.isFailure else { return nil }
-        return router.milliseconds == nil ? .localNetwork : .internet
+        switch router {
+        case .reply: return .internet
+        case .failed: return .localNetwork
+        case .unknown: return .noRouter
+        }
     }
 }
 
@@ -58,11 +63,13 @@ struct LatencySample: Equatable, Sendable {
 enum LatencyDiagnosis: Equatable {
     case internet
     case localNetwork
+    case noRouter
 
     var text: String {
         switch self {
         case .internet: "The router answers but the internet does not: likely your internet provider"
         case .localNetwork: "Neither the router nor the internet answers: likely the Wi-Fi or local network"
+        case .noRouter: "No router found and the internet does not answer: likely the Wi-Fi, local network or VPN"
         }
     }
 }

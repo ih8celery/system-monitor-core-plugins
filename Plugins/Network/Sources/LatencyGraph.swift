@@ -14,8 +14,8 @@ struct LatencySection: View {
             HStack(spacing: 10) {
                 SectionTitle("Latency")
                 Spacer()
-                LatencyFigure(label: "Router", point: state.history.latest?.router, color: Self.routerColor)
-                LatencyFigure(label: "Internet", point: state.history.latest?.internet, color: Self.internetColor)
+                LatencyFigure(label: "Router", text: routerLatencyText(state.history.latest), point: state.history.latest?.router, color: Self.routerColor)
+                LatencyFigure(label: "Internet", text: latencyText(state.history.latest?.internet), point: state.history.latest?.internet, color: Self.internetColor)
             }
             LatencyGraph(samples: state.history.samples)
                 .frame(height: 54)
@@ -38,6 +38,7 @@ struct LatencySection: View {
 
 private struct LatencyFigure: View {
     let label: String
+    let text: String
     let point: LatencyPoint?
     let color: Color
 
@@ -46,7 +47,7 @@ private struct LatencyFigure: View {
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Text(latencyText(point))
+            Text(text)
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(point?.isFailure == true ? Palette.critical : color)
         }
