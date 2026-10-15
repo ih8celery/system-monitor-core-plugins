@@ -1,6 +1,6 @@
 import Foundation
 
-/// The speed-test card's formatters. Only this panel uses them.
+/// The speed-test card's and latency section's formatters. Only this panel uses them.
 
 func speedTestRateText(_ megabitsPerSecond: Double?) -> String {
     guard let megabitsPerSecond else { return "-- Mbps" }
@@ -10,4 +10,14 @@ func speedTestRateText(_ megabitsPerSecond: Double?) -> String {
 func speedTestLatencyText(_ milliseconds: Double?) -> String {
     guard let milliseconds else { return "-- ms" }
     return String(format: milliseconds >= 10 ? "%.0f ms" : "%.1f ms", max(0, milliseconds))
+}
+
+/// The latency section's latest figure for one line.
+func latencyText(_ point: LatencyPoint?) -> String {
+    switch point {
+    case .reply(let milliseconds): String(format: milliseconds >= 10 ? "%.0f ms" : "%.1f ms", max(0, milliseconds))
+    case .failed: "failed"
+    case .unknown: "no router"
+    case nil: "-- ms"
+    }
 }

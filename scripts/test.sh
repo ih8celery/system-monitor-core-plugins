@@ -42,7 +42,7 @@ expected="ok power Power $b/Power.bundle
 ok dev Dev $b/Dev.bundle
 ok memory Memory $b/Memory.bundle
 ok disk Disk $b/Disk.bundle background every 900s
-ok network Network $b/Network.bundle
+ok network Network $b/Network.bundle background every 5s
 ok cpu CPU $b/CPU.bundle"
 actual=$(SYSTEMBAR_PLUGINS_FILE="$tmp/plugins.json" SYSTEMBAR_PLUGIN_DATA_ROOT="$tmp/plugin-data" \
   "$app/Contents/MacOS/SystemBar" --list-plugins) || die "Load check failed: SystemBar --list-plugins exited $?"
