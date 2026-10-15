@@ -1,4 +1,5 @@
 import Foundation
+import SystemBarKit
 
 /// Bytes the internal disk has read and written since boot, summed over its block storage drivers.
 struct DiskCounters: Equatable {
@@ -12,6 +13,11 @@ enum DiskActivity {
     static let ioregPath = "/usr/sbin/ioreg"
     static let ioregArguments = ["-a", "-l", "-r", "-c", "IOBlockStorageDevice", "-d", "2"]
     static let unavailableProblem = "Disk activity is not available: ioreg gave no internal-disk counters"
+
+    /// A speed as the cards show it: Apple's decimal units, the same as the sizes.
+    static func rateText(_ bytesPerSecond: Double) -> String {
+        fileRateString(bytesPerSecond)
+    }
 
     /// The sum over devices whose interconnect location is Internal, so a mounted disk image or an
     /// external drive does not count as the Mac's own disk. Nil when the text is not a plist or

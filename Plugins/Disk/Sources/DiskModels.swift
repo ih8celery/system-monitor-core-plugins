@@ -49,10 +49,19 @@ struct DiskVolume: Identifiable {
         return .critical
     }
 
+    /// The big number, in Apple's units: what Finder shows as available.
+    var headline: String { "\(fileByteString(finderFree)) Free" }
+
+    /// An Other Volumes row's value.
+    var freeText: String { "\(fileByteString(finderFree)) free" }
+
+    /// An Other Volumes row's detail.
+    var usageDetail: String { "\(fileByteString(finderUsed)) used of \(fileByteString(total))" }
+
     /// Under the headline: how much of the free figure is purgeable; nil when none is.
     var purgeableNote: String? {
         let share = finderFree - min(free, finderFree)
-        return share > 0 ? "of which \(byteString(share)) purgeable" : nil
+        return share > 0 ? "of which \(fileByteString(share)) purgeable" : nil
     }
 }
 

@@ -14,6 +14,12 @@ enum DiskActivityTests {
         testHistoryKeepsOnlyTheLatestPoints()
         testSamplingRunsIoregThroughTheHostAndGraphsTheDelta()
         testAFailedReadKeepsTheHistoryAndSaysSo()
+        testSpeedsReadInAppleUnits()
+    }
+
+    private static func testSpeedsReadInAppleUnits() {
+        expect(DiskActivity.rateText(1_234_567) == "1.2 MB/s", "speeds are decimal MB/s as Finder-era tools write them, got \(DiskActivity.rateText(1_234_567))")
+        expect(DiskActivity.rateText(0) == "0 B/s", "idle reads as zero, got \(DiskActivity.rateText(0))")
     }
 
     /// Trimmed from `ioreg -a -l -r -c IOBlockStorageDevice -d 2` on a Mac with an SD reader, the
