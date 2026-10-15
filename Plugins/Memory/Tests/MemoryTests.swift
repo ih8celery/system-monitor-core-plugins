@@ -29,6 +29,7 @@ enum MemoryTests {
         testSwapLineShowsBytesMovedInTheLastMinute()
         testSwapActivityForgetsWhatIsOlderThanAMinute()
         testSwapCounterResetShowsNothing()
+        MemoryHistoryTests.runAll()
     }
 
     private static func testSwapStatText() {
@@ -270,6 +271,7 @@ enum MemoryTests {
         let plugin = MemoryPlugin(host: makeHost())
         expect(MemoryPlugin.identifier == "memory" && plugin.title == "Memory" && plugin.systemImage == "memorychip", "the bundle keeps the tab's id, title and icon")
         expect(plugin.accent == Palette.good, "and its accent")
+        expect(plugin.backgroundInterval == 10, "and a 10-second background interval")
         expect(plugin.refreshInterval == 3 && plugin.sharedFeeds == [.processes], "and its 3-second interval and its need for the process feed")
         expect(MemorySampling.gpuRefreshInterval == 30, "ioreg stays on its 30-second cache")
     }

@@ -121,6 +121,7 @@ struct MemoryStatsSnapshot {
     var pressure: MemoryPressureLevel?
     var lastUpdated: Date?
     var swapHistory = SwapHistory()
+    var history = PressureHistory()
 }
 
 extension MemoryStatsSnapshot {
@@ -131,6 +132,8 @@ extension MemoryStatsSnapshot {
 /// How often the Memory tab samples.
 enum MemorySampling {
     static let refreshInterval: TimeInterval = 3
+    /// How often the host calls the tab while it is hidden, so the pressure graph is full when it opens.
+    static let backgroundInterval: TimeInterval = 10
     /// ioreg is a subprocess whose answers change slowly, so it is read this often and cached in
     /// between. The kernel counters and the pressure level are sysctls, read on every sample.
     /// The swap line reads the change in the swap counters over this long.
@@ -154,7 +157,8 @@ extension MemoryStatsSnapshot {
             gpu: reading.gpu,
             pressure: reading.pressure,
             lastUpdated: reading.sampledAt,
-            swapHistory: swapHistory.recording(reading.memory, at: reading.sampledAt)
+            swapHistory: swapHistory.recording(reading.memory, at: reading.sampledAt),
+            history: history.recording(reading)
         )
     }
 }
