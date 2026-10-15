@@ -33,7 +33,7 @@ struct DiskVolume: Identifiable {
         min(free &+ purgeable, total)
     }
 
-    /// Used as Finder counts it, with the purgeable share left out.
+    /// Capacity minus Finder's available: the purgeable share is not counted as used.
     var finderUsed: UInt64 {
         total - finderFree
     }

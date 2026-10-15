@@ -35,9 +35,12 @@ enum DiskActivity {
         return found ? total : nil
     }
 
+    /// Internal, and not the built-in SD card reader: it sits on an internal bus too, but a card
+    /// in it is not the Mac's own disk.
     private static func isInternal(_ device: [String: Any]) -> Bool {
         let characteristics = device["Protocol Characteristics"] as? [String: Any]
         return characteristics?["Physical Interconnect Location"] as? String == "Internal"
+            && characteristics?["Physical Interconnect"] as? String != "Secure Digital"
     }
 
     private static func children(of device: [String: Any]) -> [[String: Any]] {
@@ -56,7 +59,7 @@ struct DiskActivityHistory {
     /// One point per second, so two minutes of graph.
     static let pointLimit = 120
     /// A reading further than this from the last is a gap (the Mac slept, the tab was torn down),
-    /// not a long sample: it becomes the new baseline and adds no points.
+    /// not a long sample: it becomes the new baseline and is drawn as idle, with no rate.
     static let maximumGap: TimeInterval = 30
 
     private(set) var readRates: [Double] = []
@@ -83,7 +86,14 @@ struct DiskActivityHistory {
         let elapsed = date.timeIntervalSince(last.at)
         guard elapsed > 0 else { return next }
         next.last = (counters, date)
-        guard elapsed <= Self.maximumGap else { return next }
+        guard elapsed <= Self.maximumGap else {
+            // A gap (the Mac slept) is drawn as idle for as long as it lasted, so the old points do
+            // not sit flush against the new ones; the average over it would be a lie, so no rate.
+            let idleSeconds = Int(min(elapsed, Double(Self.pointLimit)).rounded())
+            next.readRates = Self.appending(0, times: idleSeconds, to: readRates)
+            next.writeRates = Self.appending(0, times: idleSeconds, to: writeRates)
+            return next
+        }
         let seconds = max(1, Int(elapsed.rounded()))
         next.readRates = Self.appending(Self.rate(from: last.counters.bytesRead, to: counters.bytesRead, over: elapsed), times: seconds, to: readRates)
         next.writeRates = Self.appending(Self.rate(from: last.counters.bytesWritten, to: counters.bytesWritten, over: elapsed), times: seconds, to: writeRates)

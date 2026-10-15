@@ -78,6 +78,11 @@ struct DiskPanel: View {
                 SegmentedBar(segments: distribution.filter { $0.value > 0 }, total: boot.total)
                     .frame(height: 20)
                 SegmentedLegend(rows: distribution, format: Self.sizeFormat)
+                if boot.purgeableNote != nil {
+                    Text("This map counts purgeable space as used, because it is on the disk, so its total reads higher than Used above.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if !snapshot.otherVolumes.isEmpty {
