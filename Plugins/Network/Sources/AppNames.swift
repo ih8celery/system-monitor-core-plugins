@@ -5,7 +5,8 @@ import Foundation
 /// characters, so a tool whose binary is a version number shows as `2.1.296` and a long name is
 /// cut short. Those two, and only those, take a name from the executable's path.
 enum AppNames {
-    /// nettop's name column holds this many characters at most (the kernel's MAXCOMLEN).
+    /// nettop's name column holds this many characters at most: its own width, one short of the
+    /// kernel's MAXCOMLEN (16).
     static let nettopNameLimit = 15
     private static let versionFolders: Set<String> = ["versions"]
 
