@@ -36,17 +36,6 @@ struct MemoryPanel: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 10) {
-                        Text("GPU busy")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Text(percentString(plugin.stats.gpu.deviceUtilization))
-                            .font(.system(size: 18, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Palette.blue)
-                        Spacer()
-                    }
-                    .help("How hard the GPU's compute units were working at the last 30-second check. It is not a memory figure.")
-
-                    HStack(spacing: 10) {
                         StatPill(label: "GPU memory in use", value: memoryByteString(plugin.stats.gpu.inUseMemory))
                         StatPill(label: "GPU memory allocated", value: memoryByteString(plugin.stats.gpu.allocatedMemory))
                     }
