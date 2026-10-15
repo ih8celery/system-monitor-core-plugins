@@ -77,8 +77,13 @@ struct BatteryAlertReading: Equatable {
 struct PowerAlertRules {
     /// Battery low re-arms only this far above the limit, so a level hovering at it fires once.
     static let rearmPoints = 5
-    /// Not charging is normal this close under the charge limit: macOS tops up later.
+    /// Not charging is normal this close under the ceiling below: macOS tops up later.
     static let belowLimitPoints = 5
+    /// The highest level the rule measures from, whatever the charge limit. macOS's Optimized
+    /// Battery Charging, on by default, holds the battery at 80% for hours on the charger with no
+    /// limit set, every day; measuring from 100 would call that a fault. Under 75% on a charger
+    /// and not charging is worth a notice (a weak charger or cable, a thermal hold).
+    static let optimizedChargingHold = 80
     /// How long not charging must hold, so macOS's brief pauses never fire it.
     static let notChargingHold: TimeInterval = 2 * 60
     /// Samples further apart than this (a sleep) leave a hole the hold will not bridge. Three
@@ -136,7 +141,8 @@ struct PowerAlertRules {
             return nil
         }
         let limit = chargeLimit()
-        guard reading.percent < (limit ?? 100) - Self.belowLimitPoints else {
+        let ceiling = min(limit ?? 100, Self.optimizedChargingHold)
+        guard reading.percent < ceiling - Self.belowLimitPoints else {
             notChargingSince = nil
             hasAnnouncedNotCharging = false
             return nil
@@ -147,7 +153,7 @@ struct PowerAlertRules {
         guard date.timeIntervalSince(since) >= Self.notChargingHold, !hasAnnouncedNotCharging else { return nil }
         hasAnnouncedNotCharging = true
         guard config.notifyNotCharging else { return nil }
-        let target = limit.map { "its \($0)% charge limit" } ?? "full"
+        let target = limit.map { $0 <= ceiling } == true ? "its \(ceiling)% charge limit" : "\(ceiling)%"
         let reason = reading.notChargingReason == 0 ? "" : " The battery driver gives NotChargingReason \(reading.notChargingReason)."
         return PluginNotification(
             id: "power.not-charging",

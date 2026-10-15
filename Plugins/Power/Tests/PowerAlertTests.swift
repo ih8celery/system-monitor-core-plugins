@@ -20,6 +20,7 @@ enum PowerAlertTests {
         testNotChargingFiresAfterTwoMinutes()
         testNotChargingNamesTheDriversReason()
         testNotChargingWithinFivePointsOfTheLimitIsNormal()
+        testOptimizedChargingAtEightyIsNormal()
         testNotChargingNeverTimesInsideTheSettleWindow()
         testABriefPauseDoesNotFire()
         testASleepBetweenSamplesRestartsTheWait()
@@ -111,7 +112,18 @@ enum PowerAlertTests {
     private static func testNotChargingWithinFivePointsOfTheLimitIsNormal() {
         expect(run(every10s(from: 0, to: 300, battery(external: true, percent: 75)), limit: 80).isEmpty, "five points under an 80% limit is macOS topping up later, not a problem")
         expect(run(every10s(from: 0, to: 300, battery(external: true, percent: 74)), limit: 80).count == 1, "six points under it is")
-        expect(run(every10s(from: 0, to: 300, battery(external: true, percent: 96))).isEmpty, "with no limit file the limit is 100%")
+        expect(run(every10s(from: 0, to: 300, battery(external: true, percent: 96))).isEmpty, "with no limit file a nearly full battery is normal")
+    }
+
+    /// Optimized Battery Charging holds the battery at 80% for hours with no limit set, every day.
+    private static func testOptimizedChargingAtEightyIsNormal() {
+        expect(run(every10s(from: 0, to: 300, battery(external: true, percent: 80))).isEmpty, "held at 80% with no limit file is Optimized Battery Charging, not a problem")
+        expect(run(every10s(from: 0, to: 300, battery(external: true, percent: 76)), limit: 90).isEmpty, "a 90% limit still allows the 80% hold")
+        let low = run(every10s(from: 0, to: 110, battery(external: true, percent: 70))) + run(every10s(from: 0, to: 120, battery(external: true, percent: 70)))
+        expect(low.count == 1, "70% on a charger, not charging, fires after two minutes and not before, got \(low.count)")
+        expect(low.first?.body.contains("well short of 80%") == true, "the body names the 80% the rule measures from, got \(String(describing: low.first?.body))")
+        let lowLimit = run(every10s(from: 0, to: 120, battery(external: true, percent: 54)), limit: 60)
+        expect(lowLimit.first?.body.contains("well short of its 60% charge limit") == true, "a limit under 80% is the target, got \(String(describing: lowLimit.first?.body))")
     }
 
     private static func testNotChargingNeverTimesInsideTheSettleWindow() {
