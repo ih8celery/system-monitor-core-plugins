@@ -1,7 +1,9 @@
 import Foundation
 
 /// Watts through the Mac, by spec P1 as amended after the battery probe. Each is nil when it
-/// cannot be stood behind, never 0 W as a stand-in for absent.
+/// cannot be stood behind, never 0 W as a stand-in for absent. On AC the Mac figure takes the
+/// battery's instant watts off SystemPowerIn, which is averaged over about a minute, so for a
+/// minute after charging starts or stops (at the limit, say) it can read high or low.
 struct PowerDraw: Equatable {
     /// What the Mac itself draws.
     var macWatts: Double?
