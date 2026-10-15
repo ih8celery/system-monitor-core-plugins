@@ -41,16 +41,23 @@ struct DiskPanel: View {
 
     private var leftColumn: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(headlineText)
-                .font(.system(size: 38, weight: .bold, design: .rounded))
-                .foregroundStyle(headlineColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(headlineText)
+                    .font(.system(size: 38, weight: .bold, design: .rounded))
+                    .foregroundStyle(headlineColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                if let note = snapshot.boot?.purgeableNote {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             HStack(spacing: 10) {
                 StatPill(label: "Snapshots", value: "\(snapshot.localSnapshotCount)")
                 if let boot = snapshot.boot {
-                    StatPill(label: "Used", value: byteString(boot.used))
+                    StatPill(label: "Used", value: byteString(boot.finderUsed))
                     StatPill(label: "Capacity", value: byteString(boot.total))
                 }
             }
@@ -76,8 +83,8 @@ struct DiskPanel: View {
                         ForEach(snapshot.otherVolumes) { volume in
                             EvidenceRow(
                                 label: volume.name,
-                                value: "\(byteString(volume.free)) free",
-                                detail: "\(byteString(volume.used)) used of \(byteString(volume.total))"
+                                value: "\(byteString(volume.finderFree)) free",
+                                detail: "\(byteString(volume.finderUsed)) used of \(byteString(volume.total))"
                             )
                         }
                     }
@@ -124,14 +131,16 @@ struct DiskPanel: View {
 
     private var headlineText: String {
         guard let boot = snapshot.boot else { return "Reading volumes" }
-        return "\(byteString(boot.free)) Free"
+        return "\(byteString(boot.finderFree)) Free"
     }
 
     private var headlineColor: Color {
         guard let boot = snapshot.boot else { return .secondary }
-        if boot.freeRatio > 0.20 { return Palette.good }
-        if boot.freeRatio > 0.10 { return Palette.caution }
-        return Palette.critical
+        switch boot.freeSpaceLevel {
+        case .good: return Palette.good
+        case .caution: return Palette.caution
+        case .critical: return Palette.critical
+        }
     }
 
     // MARK: - Right: biggest and movers
@@ -247,7 +256,8 @@ struct DiskPanel: View {
 /// out itself, since it cannot draw a zero-width segment meaningfully.
 private func capacityRows(for volume: DiskVolume) -> [BarSegment] {
     [
-        BarSegment(label: "Used", value: volume.used, color: Palette.blue),
-        BarSegment(label: "Free", value: volume.free, color: Palette.good)
+        BarSegment(label: "Used", value: volume.finderUsed, color: Palette.blue),
+        BarSegment(label: "Purgeable", value: volume.finderFree - min(volume.free, volume.finderFree), color: Palette.cyan),
+        BarSegment(label: "Free", value: min(volume.free, volume.finderFree), color: Palette.good)
     ]
 }
