@@ -1,16 +1,24 @@
 import Foundation
 import SystemBarKit
 
+/// The ioreg arguments the collector must ask for, written out here rather than read back from
+/// the collector, so a change to them shows up as a failing test.
+private let ioregArguments = ["-r", "-n", "AppleSmartBattery", "-a"]
+
 /// Main-actor because a plugin is constructed on the main thread, by contract.
 @MainActor
 enum PowerTests {
     static func runAll() {
         testBatteryParsing()
+        testChargeStateComesFromTheBatteryDriver()
+        testChargeStateIsAbsentWithoutABatteryReading()
         testBatteryStatLabel()
         testParseSleepAssertions()
         testContributorsComeFromTheProcessFeed()
         testCollectRunsPmsetTwiceAndReadsTheAnswers()
         testCollectSaysWhatIsUnavailableWhenPmsetFails()
+        testCollectReadsAMacHeldAtItsLimitAsHeld()
+        testCollectReadsAMacOnBatteryAsDischarging()
         testContributorsFollowTheProcessFeed()
         testPluginIdentityMatchesTheOldTab()
     }
@@ -23,13 +31,47 @@ enum PowerTests {
         let parsed = PowerCollector.parseBatteryStatus(sample)
         expect(parsed.powerSource == "AC Power", "battery parser should extract power source")
         expect(parsed.percent == 92, "battery parser should extract percentage")
-        expect(parsed.isCharging == true, "battery parser should identify charging state")
+    }
+
+    private static func testChargeStateComesFromTheBatteryDriver() {
+        let cases: [(String, ChargeState, String)] = [
+            (PowerFixtures.ioregHeld, .heldAtLimit, "captured at the 80% limit"),
+            (PowerFixtures.ioregDischarging, .discharging, "unplugged"),
+            (PowerFixtures.ioregCharging, .charging, "charging"),
+            (PowerFixtures.ioregFull, .full, "full on the charger"),
+            (PowerFixtures.ioreg(external: true, fullyCharged: false, charging: false, capacity: 50, notChargingReason: 0),
+             .onACNotCharging, "on the charger, not charging, no reason given"),
+            (PowerFixtures.ioreg(external: true, fullyCharged: false, charging: false, capacity: 50, notChargingReason: 4),
+             .onACNotCharging, "on the charger, not charging for a reason other than the limit"),
+        ]
+        for (output, expected, situation) in cases {
+            let state = PowerCollector.parseChargeState(output)
+            expect(state == expected, "\(situation) should read \(expected), got \(String(describing: state))")
+        }
+    }
+
+    private static func testChargeStateIsAbsentWithoutABatteryReading() {
+        // A Mac with no battery: ioreg finds nothing and prints nothing.
+        expect(PowerCollector.parseChargeState("") == nil, "no ioreg output means no charge state")
+        expect(PowerCollector.parseChargeState("<plist version=\"1.0\"><array/></plist>") == nil, "an empty battery list means no charge state")
+        expect(PowerCollector.parseChargeState("not a plist") == nil, "unreadable output means no charge state, not a guess")
+        let missingKeys = "<plist version=\"1.0\"><array><dict><key>CurrentCapacity</key><integer>80</integer></dict></array></plist>"
+        expect(PowerCollector.parseChargeState(missingKeys) == nil, "a battery entry without the charging keys means no charge state")
     }
 
     private static func testBatteryStatLabel() {
-        expect(batteryStatLabel(percent: 82, isCharging: true) == "82% Charging", "charging battery should say so")
-        expect(batteryStatLabel(percent: 82, isCharging: false) == "82%", "non-charging battery should just show the percent")
-        expect(batteryStatLabel(percent: 82, isCharging: nil) == "82%", "unknown charging state should not be asserted")
+        let cases: [(ChargeState?, String)] = [
+            (.charging, "82% Charging"),
+            (.discharging, "82% Discharging"),
+            (.full, "82% Full"),
+            (.heldAtLimit, "Held at 82% limit"),
+            (.onACNotCharging, "82% On AC (not charging)"),
+            (nil, "82%"),
+        ]
+        for (state, expected) in cases {
+            let label = batteryStatLabel(percent: 82, state: state)
+            expect(label == expected, "\(String(describing: state)) should read \(expected), got \(label)")
+        }
     }
 
     private static func testParseSleepAssertions() {
@@ -73,17 +115,22 @@ enum PowerTests {
             if arguments == ["-g", "assertions"] {
                 return CommandOutput(output: assertionsOutput, error: "", status: 0, didTimeout: false)
             }
+            if arguments == ioregArguments {
+                return CommandOutput(output: PowerFixtures.ioregCharging, error: "", status: 0, didTimeout: false)
+            }
             return CommandOutput(output: "", error: "unexpected arguments", status: 1, didTimeout: false)
         }
 
         let snapshot = PowerCollector.collect(using: host)
         let seen = recorder.seen
 
-        expect(seen.count == 2, "collect reads battery and assertions, got \(seen.count) calls")
-        expect(seen.allSatisfy { $0.path == "/usr/bin/pmset" }, "both reads go through pmset, got \(seen.map(\.path))")
+        expect(seen.count == 3, "collect reads battery, battery driver and assertions, got \(seen.count) calls")
+        expect(seen.filter { $0.path == "/usr/bin/pmset" }.count == 2, "two reads go through pmset, got \(seen.map(\.path))")
+        expect(seen.contains { $0.path == "/usr/sbin/ioreg" && $0.arguments == ioregArguments }, "one read asks ioreg for the battery driver")
         expect(seen.contains { $0.arguments == ["-g", "batt"] }, "one read asks pmset for battery status")
         expect(seen.contains { $0.arguments == ["-g", "assertions"] }, "the other asks pmset for sleep assertions")
         expect(snapshot.batteryPercent == 77, "the snapshot carries the parsed battery percent, got \(String(describing: snapshot.batteryPercent))")
+        expect(snapshot.chargeState == .charging, "the snapshot carries the driver's charge state, got \(String(describing: snapshot.chargeState))")
         expect(snapshot.sleepAssertions.contains { $0.contains("PreventUserIdleSystemSleep") }, "the snapshot carries the parsed assertions, got \(snapshot.sleepAssertions)")
         expect(snapshot.status == "Power sample OK", "both reads succeeding reports OK, got \(snapshot.status)")
         expect(snapshot.health == .ok, "both reads succeeding is healthy")
@@ -96,8 +143,40 @@ enum PowerTests {
 
         let snapshot = PowerCollector.collect(using: host)
 
-        expect(snapshot.status == "battery unavailable, assertions unavailable", "both failures are named, got \(snapshot.status)")
+        expect(snapshot.status == "battery unavailable, charge state unavailable, assertions unavailable", "every failure is named, got \(snapshot.status)")
         expect(snapshot.health == .degraded, "a failed pmset read is degraded")
+        expect(snapshot.chargeState == nil, "a failed ioreg read asserts no charge state")
+    }
+
+    /// The bug this replaced: pmset says "not charging", which contains "charging".
+    private static func testCollectReadsAMacHeldAtItsLimitAsHeld() {
+        let snapshot = collectFrom(pmset: PowerFixtures.pmsetHeld, ioreg: PowerFixtures.ioregHeld)
+        let label = snapshot.batteryPercent.map { batteryStatLabel(percent: $0, state: snapshot.chargeState) }
+        expect(label == "Held at 80% limit", "the captured held Mac reads as held, got \(String(describing: label))")
+        expect(snapshot.health == .ok, "every read succeeding is healthy, got \(snapshot.status)")
+    }
+
+    private static func testCollectReadsAMacOnBatteryAsDischarging() {
+        let snapshot = collectFrom(pmset: PowerFixtures.pmsetDischarging, ioreg: PowerFixtures.ioregDischarging)
+        let label = snapshot.batteryPercent.map { batteryStatLabel(percent: $0, state: snapshot.chargeState) }
+        expect(label == "79% Discharging", "a Mac on battery reads as discharging, got \(String(describing: label))")
+        expect(snapshot.powerSource == "Battery Power", "the source still comes from pmset, got \(snapshot.powerSource)")
+    }
+
+    private static func collectFrom(pmset: String, ioreg: String) -> PowerSnapshot {
+        let host = makeHost { path, arguments, _, _ in
+            switch (path, arguments) {
+            case ("/usr/bin/pmset", ["-g", "batt"]):
+                return CommandOutput(output: pmset, error: "", status: 0, didTimeout: false)
+            case ("/usr/sbin/ioreg", ioregArguments):
+                return CommandOutput(output: ioreg, error: "", status: 0, didTimeout: false)
+            case ("/usr/bin/pmset", ["-g", "assertions"]):
+                return CommandOutput(output: "", error: "", status: 0, didTimeout: false)
+            default:
+                return CommandOutput(output: "", error: "unexpected command", status: 1, didTimeout: false)
+            }
+        }
+        return PowerCollector.collect(using: host)
     }
 
     private static func testContributorsFollowTheProcessFeed() {
