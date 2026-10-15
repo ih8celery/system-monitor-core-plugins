@@ -1,4 +1,5 @@
 import Foundation
+import IOKit
 import SystemBarKit
 
 /// Bytes the internal disk has read and written since boot, summed over its block storage drivers.
@@ -8,11 +9,7 @@ struct DiskCounters: Equatable {
 }
 
 enum DiskActivity {
-    /// Every block storage device with its driver's `Statistics`, as a plist. Plain `ioreg`, no
-    /// root: the counters are public registry properties.
-    static let ioregPath = "/usr/sbin/ioreg"
-    static let ioregArguments = ["-a", "-l", "-r", "-c", "IOBlockStorageDevice", "-d", "2"]
-    static let unavailableProblem = "Disk activity is not available: ioreg gave no internal-disk counters"
+    static let unavailableProblem = "Disk activity is not available: the registry gave no internal-disk counters"
 
     /// A speed as the cards show it: Apple's decimal units, the same as the sizes.
     static func rateText(_ bytesPerSecond: Double) -> String {
@@ -20,12 +17,10 @@ enum DiskActivity {
     }
 
     /// The sum over devices whose interconnect location is Internal, so a mounted disk image or an
-    /// external drive does not count as the Mac's own disk. Nil when the text is not a plist or
-    /// holds no internal counters: zero would be a claim the disk is idle.
-    static func parseCounters(_ text: String) -> DiskCounters? {
-        guard let data = text.data(using: .utf8),
-              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-              let devices = plist as? [[String: Any]] else { return nil }
+    /// external drive does not count as the Mac's own disk. Each device is a dictionary holding
+    /// its "Protocol Characteristics" and its "IORegistryEntryChildren", the shape `ioreg -a`
+    /// prints. Nil when no internal device has counters: zero would claim the disk is idle.
+    static func counters(from devices: [[String: Any]]) -> DiskCounters? {
         var found = false
         var total = DiskCounters(bytesRead: 0, bytesWritten: 0)
         for device in devices where isInternal(device) {
@@ -58,8 +53,11 @@ enum DiskActivity {
 /// The graph's data: read and write speeds, one point per sample, newest last. A value type, so a
 /// sample returns the next history and the old one stays as it was.
 struct DiskActivityHistory {
-    /// At one sample a second, two minutes of graph.
+    /// One point per second, so two minutes of graph.
     static let pointLimit = 120
+    /// A reading further than this from the last is a gap (the Mac slept, the tab was torn down),
+    /// not a long sample: it becomes the new baseline and adds no points.
+    static let maximumGap: TimeInterval = 30
 
     private(set) var readRates: [Double] = []
     private(set) var writeRates: [Double] = []
@@ -70,8 +68,10 @@ struct DiskActivityHistory {
     var currentReadRate: Double { readRates.last ?? 0 }
     var currentWriteRate: Double { writeRates.last ?? 0 }
 
-    /// A copy with the reading applied. The first reading only sets the baseline. A counter that
-    /// went backwards (the driver restarted) gives 0 for that point rather than an unsigned wrap,
+    /// A copy with the reading applied. The first reading only sets the baseline. The axis is one
+    /// point per second, so a reading n seconds after the last adds n points at the average
+    /// speed over those seconds: sampling slowly while the tab is hidden still fills the graph. A
+    /// counter that went backwards (the driver restarted) gives 0 rather than an unsigned wrap,
     /// and a reading with no time since the last adds no point.
     func applying(_ counters: DiskCounters, at date: Date) -> DiskActivityHistory {
         var next = self
@@ -83,8 +83,10 @@ struct DiskActivityHistory {
         let elapsed = date.timeIntervalSince(last.at)
         guard elapsed > 0 else { return next }
         next.last = (counters, date)
-        next.readRates = Self.appending(Self.rate(from: last.counters.bytesRead, to: counters.bytesRead, over: elapsed), to: readRates)
-        next.writeRates = Self.appending(Self.rate(from: last.counters.bytesWritten, to: counters.bytesWritten, over: elapsed), to: writeRates)
+        guard elapsed <= Self.maximumGap else { return next }
+        let seconds = max(1, Int(elapsed.rounded()))
+        next.readRates = Self.appending(Self.rate(from: last.counters.bytesRead, to: counters.bytesRead, over: elapsed), times: seconds, to: readRates)
+        next.writeRates = Self.appending(Self.rate(from: last.counters.bytesWritten, to: counters.bytesWritten, over: elapsed), times: seconds, to: writeRates)
         return next
     }
 
@@ -99,7 +101,41 @@ struct DiskActivityHistory {
         new >= old ? Double(new - old) / elapsed : 0
     }
 
-    private static func appending(_ value: Double, to values: [Double]) -> [Double] {
-        Array((values + [value]).suffix(pointLimit))
+    private static func appending(_ value: Double, times count: Int, to values: [Double]) -> [Double] {
+        Array((values + Array(repeating: value, count: count)).suffix(pointLimit))
+    }
+}
+
+/// Reads the internal disk's byte counters in process: no subprocess, so sampling every few
+/// seconds while the tab is hidden costs a registry walk, not a process launch.
+enum IOKitDiskReader {
+    static func read() -> DiskCounters? {
+        var iterator = io_iterator_t()
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOBlockStorageDriver"), &iterator) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(iterator) }
+        var devices: [[String: Any]] = []
+        var driver = IOIteratorNext(iterator)
+        while driver != 0 {
+            if let device = device(owning: driver) { devices.append(device) }
+            IOObjectRelease(driver)
+            driver = IOIteratorNext(iterator)
+        }
+        return DiskActivity.counters(from: devices)
+    }
+
+    /// The driver's parent device and the driver's statistics, in the shape `counters(from:)` reads.
+    private static func device(owning driver: io_registry_entry_t) -> [String: Any]? {
+        guard let stats = property("Statistics", of: driver) as? [String: Any] else { return nil }
+        var parent = io_registry_entry_t()
+        guard IORegistryEntryGetParentEntry(driver, kIOServicePlane, &parent) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(parent) }
+        return [
+            "Protocol Characteristics": property("Protocol Characteristics", of: parent) ?? [String: Any](),
+            "IORegistryEntryChildren": [["IOObjectClass": "IOBlockStorageDriver", "Statistics": stats]],
+        ]
+    }
+
+    private static func property(_ key: String, of entry: io_registry_entry_t) -> Any? {
+        IORegistryEntryCreateCFProperty(entry, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
     }
 }

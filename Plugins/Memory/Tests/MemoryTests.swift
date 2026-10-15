@@ -200,7 +200,6 @@ enum MemoryTests {
     private static func testGPUFiguresComeFromIoreg() {
         let collector = MemoryCollector(host: makeHost(runner: recordingRunner(LogRecorder(), answers: answers)), kernelPressureLevel: { 1 })
         let gpu = collector.sample(at: Date(timeIntervalSince1970: 10_000)).gpu
-        expect(gpu.deviceUtilization == 12, "the busy percentage is ioreg's Device Utilization, got \(gpu.deviceUtilization)")
         expect(gpu.inUseMemory == 123_456_789, "in-use memory is the plain 'In use system memory' key, not the '(driver)' one that precedes it, got \(gpu.inUseMemory)")
         expect(gpu.allocatedMemory == 14_671_822_848, "allocated memory is 'Alloc system memory', got \(gpu.allocatedMemory)")
     }
@@ -215,7 +214,7 @@ enum MemoryTests {
         let collector = MemoryCollector(host: makeHost(runner: recordingRunner(LogRecorder(), answers: answers)), kernelPressureLevel: { 1 })
         let gpu = collector.sample(at: Date(timeIntervalSince1970: 10_000)).gpu
         expect(gpu.inUseMemory == 0, "with no 'In use system memory' key, the '(driver)' figure must not stand in for it, got \(gpu.inUseMemory)")
-        expect(gpu.allocatedMemory == 0 && gpu.deviceUtilization == 3, "the other figures are unaffected, got \(gpu)")
+        expect(gpu.allocatedMemory == 0, "the other figures are unaffected, got \(gpu)")
     }
 
     private static func testGPUIsReadEveryThirtySecondsAndPressureEverySample() {
@@ -231,7 +230,7 @@ enum MemoryTests {
         let soon = collector.sample(at: start.addingTimeInterval(3))
         _ = collector.sample(at: start.addingTimeInterval(31))
 
-        expect(first.gpu.deviceUtilization == 12 && soon.gpu.deviceUtilization == 12, "between refreshes the cached GPU figures stand")
+        expect(first.gpu.inUseMemory == 123_456_789 && soon.gpu.inUseMemory == 123_456_789, "between refreshes the cached GPU figures stand")
         expect(recorder.messages.filter { $0.hasPrefix("/usr/sbin/ioreg ") }.count == 2, "ioreg runs at the first sample and again once 30 seconds have passed, not every 3 seconds, got \(recorder.messages)")
         expect(pressureReads.count == 3, "the kernel's pressure level is cheap and read on every sample, got \(pressureReads.count)")
     }

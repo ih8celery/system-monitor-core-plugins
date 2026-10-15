@@ -98,7 +98,6 @@ final class MemoryCollector: @unchecked Sendable {
         }
 
         return GPUSnapshot(
-            deviceUtilization: Self.doubleValue(in: result.output, key: "Device Utilization %") ?? 0,
             inUseMemory: Self.uint64Value(in: result.output, key: "In use system memory") ?? 0,
             allocatedMemory: Self.uint64Value(in: result.output, key: "Alloc system memory") ?? 0
         )
@@ -123,11 +122,6 @@ final class MemoryCollector: @unchecked Sendable {
 
         let token = suffix.prefix { !$0.isNewline && $0 != "," && $0 != "}" }
         return String(token).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func doubleValue(in text: String, key: String) -> Double? {
-        guard let value = stringValue(in: text, key: key) else { return nil }
-        return Double(value.filter { $0.isNumber || $0 == "." || $0 == "-" })
     }
 
     private static func uint64Value(in text: String, key: String) -> UInt64? {
