@@ -16,6 +16,9 @@ struct MemoryPageCounts {
     var `internal`: UInt64 = 0
     /// File-backed pages: the file cache.
     var external: UInt64 = 0
+    /// Pages swapped in and out since boot; only their change over time means anything.
+    var swapIns: UInt64 = 0
+    var swapOuts: UInt64 = 0
 }
 
 /// Swap as `vm.swapusage` reports it, in bytes.
@@ -42,6 +45,9 @@ struct MemorySnapshot {
     var free: UInt64 = 0
     var swapTotal: UInt64 = 0
     var swapUsed: UInt64 = 0
+    /// Bytes swapped in and out since boot (`swapins`/`swapouts` times the page size).
+    var swapInsTotal: UInt64 = 0
+    var swapOutsTotal: UInt64 = 0
 }
 
 /// Activity Monitor's arithmetic. App memory is the anonymous pages less the purgeable ones
@@ -66,7 +72,9 @@ func memorySnapshot(from counts: MemoryPageCounts, swap: SwapUsage = SwapUsage()
         purgeable: bytes(counts.purgeable),
         free: bytes(counts.free),
         swapTotal: swap.total,
-        swapUsed: swap.used
+        swapUsed: swap.used,
+        swapInsTotal: bytes(counts.swapIns),
+        swapOutsTotal: bytes(counts.swapOuts)
     )
 }
 
@@ -112,6 +120,12 @@ struct MemoryStatsSnapshot {
     var gpu = GPUSnapshot()
     var pressure: MemoryPressureLevel?
     var lastUpdated: Date?
+    var swapHistory = SwapHistory()
+}
+
+extension MemoryStatsSnapshot {
+    /// How much was swapped in and out over the last minute of samples.
+    var swapActivity: SwapActivity { swapHistory.activity }
 }
 
 /// How often the Memory tab samples.
@@ -119,6 +133,8 @@ enum MemorySampling {
     static let refreshInterval: TimeInterval = 3
     /// ioreg is a subprocess whose answers change slowly, so it is read this often and cached in
     /// between. The kernel counters and the pressure level are sysctls, read on every sample.
+    /// The swap line reads the change in the swap counters over this long.
+    static let swapWindow: TimeInterval = 60
     static let gpuRefreshInterval: TimeInterval = 30
 }
 
@@ -137,7 +153,8 @@ extension MemoryStatsSnapshot {
             memory: reading.memory,
             gpu: reading.gpu,
             pressure: reading.pressure,
-            lastUpdated: reading.sampledAt
+            lastUpdated: reading.sampledAt,
+            swapHistory: swapHistory.recording(reading.memory, at: reading.sampledAt)
         )
     }
 }

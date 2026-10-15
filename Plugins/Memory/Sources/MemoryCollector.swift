@@ -78,7 +78,9 @@ final class MemoryCollector: @unchecked Sendable {
             compressor: UInt64(stats.compressor_page_count),
             purgeable: UInt64(stats.purgeable_count),
             internal: UInt64(stats.internal_page_count),
-            external: UInt64(stats.external_page_count)
+            external: UInt64(stats.external_page_count),
+            swapIns: stats.swapins,
+            swapOuts: stats.swapouts
         )
     }
 
