@@ -4,12 +4,19 @@ import SystemBarKit
 /// Two pmset reads, one ioreg read of the battery driver, and the parsing of them. Pure apart
 /// from `collect(using:)`.
 enum PowerCollector {
-    static func collect(using host: HostServices, chargeLimitFile: URL = PowerCollector.chargeLimitFile) -> PowerSnapshot {
+    /// `previousExternal` is the last sample's charger state, nil for the first sample.
+    static func collect(
+        using host: HostServices,
+        chargeLimitFile: URL = PowerCollector.chargeLimitFile,
+        previousExternal: Bool? = nil
+    ) -> PowerSnapshot {
         let battery = host.run(path: "/usr/bin/pmset", arguments: ["-g", "batt"])
         let driver = host.run(path: ioregPath, arguments: ioregArguments)
         let assertions = host.run(path: "/usr/bin/pmset", arguments: ["-g", "assertions"])
         let parsedBattery = parseBatteryStatus(battery.output)
         let driverEntry = driver.status == 0 ? batteryEntry(driver.output) : nil
+        let isExternal = driverEntry?["ExternalConnected"] as? Bool
+        let sourceJustChanged = previousExternal != nil && isExternal != nil && previousExternal != isExternal
         let parsedAssertions = assertions.status == 0 ? parseSleepAssertions(assertions.output) : []
         var status: [String] = []
         if battery.status != 0 { status.append("battery unavailable") }
@@ -23,6 +30,9 @@ enum PowerCollector {
             chargeState: driverEntry.flatMap(chargeState(from:)),
             batteryDetail: driverEntry.flatMap(batteryDetail(from:)),
             chargeLimit: chargeLimit(fileAt: chargeLimitFile),
+            powerDraw: powerDraw(from: driverEntry, sourceJustChanged: sourceJustChanged),
+            hasDriverReading: driver.status == 0,
+            isExternal: isExternal,
             sleepAssertions: parsedAssertions,
             status: status.isEmpty ? "Power sample OK" : status.joined(separator: ", "),
             health: SampleHealth(isOK: status.isEmpty)

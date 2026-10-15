@@ -14,6 +14,11 @@ struct PowerSnapshot {
     var chargeState: ChargeState?
     var batteryDetail: BatteryDetail?
     var chargeLimit: Int?
+    var powerDraw: PowerDraw?
+    /// Whether the battery driver answered, so no power figures can be told from no sample yet.
+    var hasDriverReading = false
+    /// The charger as this sample saw it, so the next can tell a plug or unplug.
+    var isExternal: Bool?
     var sleepAssertions: [String] = []
     var status = "Waiting for power sample"
     var health = SampleHealth.degraded

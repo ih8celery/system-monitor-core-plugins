@@ -20,6 +20,9 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     @Published private(set) var contributors: [PowerContributor] = []
     private let host: HostServices
     private var feedSubscription: AnyCancellable?
+    /// The last sample's charger state. Only `sample()` touches it, and the host calls
+    /// `collect()` on this plugin's one queue, so samples never overlap.
+    private var lastExternal: Bool?
 
     @MainActor public init(host: HostServices) {
         self.host = host
@@ -31,10 +34,17 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     }
 
     public func collect() {
-        let next = PowerCollector.collect(using: host)
+        let next = sample()
         DispatchQueue.main.async { [weak self] in
             self?.snapshot = next
         }
+    }
+
+    /// One reading, remembering the charger state so the next can tell a plug or unplug.
+    func sample() -> PowerSnapshot {
+        let next = PowerCollector.collect(using: host, previousExternal: lastExternal)
+        lastExternal = next.isExternal ?? lastExternal
+        return next
     }
 
     @MainActor public func makeView() -> AnyView {
