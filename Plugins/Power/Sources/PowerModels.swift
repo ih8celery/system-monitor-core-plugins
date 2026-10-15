@@ -19,6 +19,8 @@ struct PowerSnapshot {
     var hasDriverReading = false
     /// The charger as this sample saw it, so the next can tell a plug or unplug.
     var isExternal: Bool?
+    /// True within the lag window of a plug or unplug, while the telemetry catches up.
+    var isSettling = false
     var sleepAssertions: [String] = []
     var status = "Waiting for power sample"
     var health = SampleHealth.degraded
