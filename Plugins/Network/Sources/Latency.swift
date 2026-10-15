@@ -7,13 +7,15 @@ enum PingOutcome: Equatable, Sendable {
     case reply(milliseconds: Double)
     case timeout
     case failed(String)
+    /// The kernel refused the send at once: it has no IPv4 route to the address.
+    case noRoute(String)
 }
 
 /// Sends one ping to an IPv4 address and waits no longer than the timeout.
 typealias Pinger = @Sendable (_ address: String, _ timeout: TimeInterval) -> PingOutcome
 
-/// One line's point on the latency graph. `unknown` is a router that could not be found, so no
-/// ping was sent: a gap in the line, not a failure.
+/// One line's point on the latency graph. `unknown` is a gap, not a failure: the router line when
+/// no router was found, and the internet line too when the kernel had no IPv4 route to send on.
 enum LatencyPoint: Equatable, Sendable {
     case reply(Double)
     case failed(String)
@@ -23,7 +25,7 @@ enum LatencyPoint: Equatable, Sendable {
         switch outcome {
         case .reply(let milliseconds): self = .reply(milliseconds)
         case .timeout: self = .failed("timed out")
-        case .failed(let reason): self = .failed(reason)
+        case .failed(let reason), .noRoute(let reason): self = .failed(reason)
         }
     }
 
@@ -61,6 +63,7 @@ enum LatencyDiagnosis: Equatable {
 /// The last five minutes of pings, oldest first.
 struct LatencyHistory: Equatable {
     static let capacity = 60
+    static let noRouteNote = "No IPv4 route to the internet (an IPv6-only network, or none), so nothing is pinged"
 
     private(set) var samples: [LatencySample] = []
 
@@ -69,6 +72,11 @@ struct LatencyHistory: Equatable {
     }
 
     var latest: LatencySample? { samples.last }
+
+    /// The latest round sent nothing, for want of an IPv4 default route.
+    var hasNoRoute: Bool {
+        latest.map { $0.router == .unknown && $0.internet == .unknown } ?? false
+    }
 
     /// Only a failing internet needs explaining: a router that answers puts the fault past it,
     /// and one that does not (or cannot be found) puts it on this side of it.
@@ -83,6 +91,13 @@ struct LatencyState {
     var history = LatencyHistory()
     let internetAddress: String
     let settingsProblem: String?
+
+    /// What the panel says under the graph: a settings problem and what the latest round
+    /// suggests, each in its own line, so one never hides the other.
+    var notes: [String] {
+        let round = history.hasNoRoute ? LatencyHistory.noRouteNote : history.diagnosis?.text
+        return [settingsProblem, round].compactMap { $0 }
+    }
 
     func recording(_ sample: LatencySample) -> LatencyState {
         var next = self
@@ -101,20 +116,53 @@ enum LatencySettings {
     /// nothing; a hostname would also mean a DNS lookup every five seconds.
     static func internetAddress(_ settings: PluginSettings) -> (address: String, problem: String?) {
         guard settings[key] != nil else { return (defaultAddress, nil) }
-        if let text = settings.string(forKey: key), isIPv4(text) { return (text, nil) }
+        if let text = settings.string(forKey: key), let address = canonicalIPv4(text) { return (address, nil) }
         return (defaultAddress, "settings: \"\(key)\" must be an IPv4 address such as \(defaultAddress); pinging \(defaultAddress)")
     }
 
-    private static func isIPv4(_ text: String) -> Bool {
+    /// The address as `inet_ntop` writes it, which is how a reply's source is compared with it.
+    private static func canonicalIPv4(_ text: String) -> String? {
         var address = in_addr()
-        return inet_pton(AF_INET, text, &address) == 1
+        guard inet_pton(AF_INET, text, &address) == 1 else { return nil }
+        var characters = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        guard inet_ntop(AF_INET, &address, &characters, socklen_t(characters.count)) != nil else { return nil }
+        return String(cString: characters)
     }
 }
 
-/// One round: the router, when there is one, then the internet.
+/// One round: the router and the internet, pinged at the same time, so two silent targets cost
+/// one timeout. With no router found the internet is still pinged, because a full-tunnel VPN can
+/// route IPv4 with no gateway address; only the kernel refusing that send for want of a route (an
+/// IPv6-only network, or none) makes the internet line unknown rather than failed.
 enum LatencyProbe {
     static func measure(router: String?, internet: String, at: Date, timeout: TimeInterval = NetworkSampling.pingTimeout, ping: Pinger) -> LatencySample {
-        let routerPoint = router.map { LatencyPoint(ping($0, timeout)) } ?? .unknown
-        return LatencySample(at: at, router: routerPoint, internet: LatencyPoint(ping(internet, timeout)))
+        guard let router else {
+            let outcome = ping(internet, timeout)
+            if case .noRoute = outcome { return LatencySample(at: at, router: .unknown, internet: .unknown) }
+            return LatencySample(at: at, router: .unknown, internet: LatencyPoint(outcome))
+        }
+        let targets = [router, internet]
+        let results = PingResults(count: targets.count)
+        DispatchQueue.concurrentPerform(iterations: targets.count) { index in
+            results.set(index, ping(targets[index], timeout))
+        }
+        let outcomes = results.all
+        return LatencySample(at: at, router: LatencyPoint(outcomes[0]), internet: LatencyPoint(outcomes[1]))
     }
+}
+
+/// The outcomes of pings running at once, each written by its own thread.
+private final class PingResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var outcomes: [PingOutcome]
+
+    init(count: Int) {
+        outcomes = Array(repeating: .failed("not sent"), count: count)
+    }
+
+    func set(_ index: Int, _ outcome: PingOutcome) {
+        lock.withLock { outcomes[index] = outcome }
+    }
+
+    var all: [PingOutcome] { lock.withLock { outcomes } }
 }
