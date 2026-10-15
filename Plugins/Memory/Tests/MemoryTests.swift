@@ -34,7 +34,7 @@ enum MemoryTests {
 
     private static func testSwapStatText() {
         expect(
-            swapStatText(used: 2_147_483_648, total: 8_589_934_592) == "2.00 GB / 8.00 GB",
+            swapStatText(used: 2_147_483_648, total: 8_589_934_592) == "2.0 GB / 8.0 GB",
             "swap stat should show used and reserved totals, not just used"
         )
         expect(
@@ -87,7 +87,7 @@ enum MemoryTests {
         let memory = MemorySnapshot(used: 46 * gib, appMemory: 20 * gib, cachedFiles: 14 * gib, wired: 23 * gib, compressed: 3 * gib)
         let text = usedBreakdownText(memory: memory)
         expect(
-            text.hasPrefix("46.0 GB used, as Activity Monitor counts it: 20.0 GB app memory + 23.0 GB wired + 3.00 GB compressed."),
+            text.hasPrefix("46.0 GB used, as Activity Monitor counts it: 20.0 GB app memory + 23.0 GB wired + 3.0 GB compressed."),
             "the tooltip spells out the sum behind used, got \(text)"
         )
         expect(text.contains("14.0 GB of cached files is not counted"), "and says what the file cache is, got \(text)")
@@ -305,10 +305,10 @@ enum MemoryTests {
 
     private static func testSwapLineShowsBytesMovedInTheLastMinute() {
         let moving = [swapReading(at: 0, ins: 100, outs: 100), swapReading(at: 3, ins: 100, outs: 164), swapReading(at: 6, ins: 132, outs: 164)]
-        let expected = "Swapping \(byteString(64 * page)) out, \(byteString(32 * page)) in"
+        let expected = "Swapping \(memoryByteString(64 * page)) out, \(memoryByteString(32 * page)) in"
         expect(swapText(moving) == expected, "the line is the newest counters less the oldest, got \(swapText(moving) ?? "nil")")
         let outOnly = [swapReading(at: 0, ins: 5, outs: 5), swapReading(at: 3, ins: 5, outs: 69)]
-        expect(swapText(outOnly) == "Swapping \(byteString(64 * page)) out, \(byteString(0)) in", "one direction alone still shows, the other reads zero")
+        expect(swapText(outOnly) == "Swapping \(memoryByteString(64 * page)) out, \(memoryByteString(0)) in", "one direction alone still shows, the other reads zero")
     }
 
     private static func testSwapActivityForgetsWhatIsOlderThanAMinute() {

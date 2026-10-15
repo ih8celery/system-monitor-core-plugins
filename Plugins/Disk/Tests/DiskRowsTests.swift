@@ -22,6 +22,16 @@ enum DiskRowsTests {
         testDeletedDevicesLeaveTheGroupCountAndList()
         testSampleHistoryAgreesWithTheLedgerOnTies()
         testDeletingTheLastSimulatorShowsAsFreed()
+        testRowValueTextUsesAppleSizes()
+    }
+
+    private static func testRowValueTextUsesAppleSizes() {
+        let big: UInt64 = 1_234_567_890
+        expect(DiskRowView.valueText(change: nil, bytes: big) == "1.2 GB", "a plain row is one size, got \(DiskRowView.valueText(change: nil, bytes: big))")
+        expect(DiskRowView.valueText(change: .grew(big), bytes: 2 * big) == "+1.2 GB → 2.5 GB", "got \(DiskRowView.valueText(change: .grew(big), bytes: 2 * big))")
+        expect(DiskRowView.valueText(change: .shrank(big), bytes: big) == "−1.2 GB → 1.2 GB", "a shrink keeps its minus sign")
+        expect(DiskRowView.valueText(change: .freed(big), bytes: 0) == "freed 1.2 GB", "got \(DiskRowView.valueText(change: .freed(big), bytes: 0))")
+        expect(DiskRowView.valueText(change: .new, bytes: big) == "new 1.2 GB", "got \(DiskRowView.valueText(change: .new, bytes: big))")
     }
 
     private static func testDeletingTheLastSimulatorShowsAsFreed() {

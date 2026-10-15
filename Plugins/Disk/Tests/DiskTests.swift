@@ -12,6 +12,7 @@ enum DiskTests {
         testFreeSpaceLevelFollowsFinderFreeRatio()
         testPurgeableNoteIsAbsentWhenNothingIsPurgeable()
         testTheRootVolumeReportsBothCapacities()
+        testVolumeTextUsesAppleSizes()
         testLocalSnapshotParsing()
         testSnapshotCountRunsTmutilThroughTheHost()
         testSnapshotAppliesAReadingAndALedger()
@@ -68,7 +69,7 @@ enum DiskTests {
 
     private static func testPurgeableNoteIsAbsentWhenNothingIsPurgeable() {
         let some = DiskVolume(name: "A", path: "/", total: 2_000_000_000, free: 0, purgeable: 500_000_000, isRoot: true)
-        expect(some.purgeableNote == "of which \(byteString(500_000_000)) purgeable", "the note names the share, got \(String(describing: some.purgeableNote))")
+        expect(some.purgeableNote == "of which 500.0 MB purgeable", "the note names the share, got \(String(describing: some.purgeableNote))")
         let none = DiskVolume(name: "B", path: "/", total: 1000, free: 100, isRoot: true)
         expect(none.purgeableNote == nil, "no purgeable space, no note")
     }
@@ -80,6 +81,16 @@ enum DiskTests {
         }
         expect(root.finderFree >= root.free, "Finder's available is never below strictly free: \(root.finderFree) vs \(root.free)")
         expect(root.finderFree <= root.total, "and never above capacity")
+    }
+
+    /// Disk sizes are decimal, as Finder writes them: 1,234,567,890 bytes is 1.2 GB, where the
+    /// binary formatter said 1.15 GB.
+    private static func testVolumeTextUsesAppleSizes() {
+        let volume = DiskVolume(name: "Macintosh HD", path: "/", total: 10_000_000_000, free: 1_000_000_000, purgeable: 234_567_890, isRoot: true)
+        expect(volume.headline == "1.2 GB Free", "the headline is Finder's free in Apple's units, got \(volume.headline)")
+        expect(volume.purgeableNote == "of which 234.6 MB purgeable", "got \(String(describing: volume.purgeableNote))")
+        expect(volume.freeText == "1.2 GB free", "got \(volume.freeText)")
+        expect(volume.usageDetail == "8.8 GB used of 10.0 GB", "got \(volume.usageDetail)")
     }
 
     private static func testLocalSnapshotParsing() {

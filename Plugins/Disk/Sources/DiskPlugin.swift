@@ -38,11 +38,13 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     private let plans: [DiskScanPlan]
     private let now: () -> Date
     private let scanQueue = DispatchQueue(label: "systembar.disk.scan", qos: .utility)
-    /// The activity graph's `ioreg` reads, one at a time, apart from the scans. Only the timer
-    /// and `sampleActivity` use it.
+    /// The activity graph's reads, one at a time, apart from the scans. Only the timer and
+    /// `sampleActivity` use it.
     private let activityQueue = DispatchQueue(label: "systembar.disk.activity", qos: .utility)
-    /// Runs once a second while the tab shows. Touched only on main.
+    /// Runs at the visible or hidden cadence for as long as the plugin lives; cancelled when it is
+    /// released. Touched only on main, and in `deinit`, when nothing else holds the plugin.
     private var activityTimer: DispatchSourceTimer?
+    private let activitySampling: ActivitySampling
     /// Touched only on `scanQueue`.
     private var ledger = DiskLedger()
     private var isLedgerLoaded = false
@@ -59,13 +61,14 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     private var isForcedRunQueued = false
 
     @MainActor public convenience init(host: HostServices) {
-        self.init(host: host, plans: DiskScanPlan.all, now: { Date() }, listChildren: DiskScanner.subfolders(of:))
+        self.init(host: host, plans: DiskScanPlan.all, now: { Date() }, listChildren: DiskScanner.subfolders(of:), activity: .standard)
     }
 
     /// The plans, clock and folder listing are parameters so a test can run a tiny plan over a
     /// fake tree in no time; the app uses `init(host:)`.
-    @MainActor init(host: HostServices, plans: [DiskScanPlan], now: @escaping () -> Date, listChildren: @escaping (String) -> [String]?) {
+    @MainActor init(host: HostServices, plans: [DiskScanPlan], now: @escaping () -> Date, listChildren: @escaping (String) -> [String]?, activity: ActivitySampling = .standard) {
         self.host = host
+        activitySampling = activity
         collector = DiskCollector(host: host)
         scanner = DiskScanner(host: host, listChildren: listChildren, now: now)
         store = DiskLedgerStore.standard(dataDirectory: host.dataDirectory)
@@ -80,6 +83,7 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
         // The saved rows show as soon as the plugin exists, not at the first collect, which with
         // the tab hidden is a background interval away.
         requestLedgerLoad()
+        scheduleActivityTimer(every: activity.hiddenInterval, startingNow: false)
     }
 
     /// `backgroundScans`: absent or true means on; false means off; anything else keeps the
@@ -205,28 +209,31 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
         publish { $0.applying(derived) }
     }
 
-    /// The activity graph moves every second, but only while the tab shows: nothing reads
-    /// `ioreg` while it is hidden, and the first reading after it shows again is the new baseline.
+    /// Showing the tab samples every second and hiding it every 5 s, so the graph keeps filling
+    /// while the popover is closed and is full when it opens.
     @MainActor public func visibilityChanged(isVisible: Bool) {
+        scheduleActivityTimer(every: isVisible ? activitySampling.visibleInterval : activitySampling.hiddenInterval, startingNow: isVisible)
+    }
+
+    /// Replaces the timer. The first reading of a slow timer waits one interval, so a plugin made
+    /// for a test or a preview does not read at once; showing the tab reads at once.
+    @MainActor private func scheduleActivityTimer(every interval: TimeInterval, startingNow: Bool) {
         activityTimer?.cancel()
-        activityTimer = nil
-        guard isVisible else { return }
         let timer = DispatchSource.makeTimerSource(queue: activityQueue)
-        timer.schedule(deadline: .now(), repeating: DiskSampling.activityInterval)
+        timer.schedule(deadline: .now() + (startingNow ? 0 : interval), repeating: interval)
         timer.setEventHandler { [weak self] in self?.readActivity(at: Date()) }
         timer.resume()
         activityTimer = timer
     }
 
-    /// One `ioreg` read, queued behind any other, published on main. A read that gives no
-    /// counters keeps the graph and says why.
+    /// One read, queued behind any other, published on main. A read that gives no counters keeps
+    /// the graph and says why.
     func sampleActivity(at date: Date) {
         activityQueue.async { [self] in readActivity(at: date) }
     }
 
     private func readActivity(at date: Date) {
-        let output = host.run(path: DiskActivity.ioregPath, arguments: DiskActivity.ioregArguments, timeout: DiskSampling.activityTimeout)
-        let counters = output.status == 0 ? DiskActivity.parseCounters(output.output) : nil
+        let counters = activitySampling.read()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if let counters {
@@ -235,6 +242,10 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
                 self.activity = self.activity.failing(DiskActivity.unavailableProblem)
             }
         }
+    }
+
+    deinit {
+        activityTimer?.cancel()
     }
 
     @MainActor public func makeView() -> AnyView {
@@ -248,4 +259,18 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
             self.snapshot = change(self.snapshot)
         }
     }
+}
+
+/// How the activity graph is fed: the read, and how often. The app uses `standard`; a test passes
+/// its own read and fast intervals.
+struct ActivitySampling {
+    let read: @Sendable () -> DiskCounters?
+    let visibleInterval: TimeInterval
+    let hiddenInterval: TimeInterval
+
+    static let standard = ActivitySampling(
+        read: { IOKitDiskReader.read() },
+        visibleInterval: DiskSampling.activityVisibleInterval,
+        hiddenInterval: DiskSampling.activityHiddenInterval
+    )
 }

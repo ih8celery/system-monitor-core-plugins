@@ -57,8 +57,8 @@ struct DiskPanel: View {
             HStack(spacing: 10) {
                 StatPill(label: "Snapshots", value: "\(snapshot.localSnapshotCount)")
                 if let boot = snapshot.boot {
-                    StatPill(label: "Used", value: byteString(boot.finderUsed))
-                    StatPill(label: "Capacity", value: byteString(boot.total))
+                    StatPill(label: "Used", value: fileByteString(boot.finderUsed))
+                    StatPill(label: "Capacity", value: fileByteString(boot.total))
                 }
             }
 
@@ -83,8 +83,8 @@ struct DiskPanel: View {
                         ForEach(snapshot.otherVolumes) { volume in
                             EvidenceRow(
                                 label: volume.name,
-                                value: "\(byteString(volume.finderFree)) free",
-                                detail: "\(byteString(volume.finderUsed)) used of \(byteString(volume.total))"
+                                value: volume.freeText,
+                                detail: volume.usageDetail
                             )
                         }
                     }
@@ -104,8 +104,8 @@ struct DiskPanel: View {
     private var activitySection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                RateCard(title: "Read", value: rateString(plugin.activity.currentReadRate), color: Palette.blue)
-                RateCard(title: "Write", value: rateString(plugin.activity.currentWriteRate), color: Palette.tangerine)
+                RateCard(title: "Read", value: DiskActivity.rateText(plugin.activity.currentReadRate), color: Palette.blue)
+                RateCard(title: "Write", value: DiskActivity.rateText(plugin.activity.currentWriteRate), color: Palette.tangerine)
             }
             if let problem = plugin.activity.problem {
                 Text(problem)
@@ -131,7 +131,7 @@ struct DiskPanel: View {
 
     private var headlineText: String {
         guard let boot = snapshot.boot else { return "Reading volumes" }
-        return "\(byteString(boot.finderFree)) Free"
+        return boot.headline
     }
 
     private var headlineColor: Color {

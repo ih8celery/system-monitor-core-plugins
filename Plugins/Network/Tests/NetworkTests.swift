@@ -271,7 +271,8 @@ enum NetworkTests {
 
     private static func testPluginPublishesWhatItCollected() {
         let answers = [nettopCommand: nettopOutput, lsofCommand: lanOnlyLsofOutput]
-        let plugin = NetworkPlugin(host: makeHost(runner: recordingRunner(LogRecorder(), answers: answers)), readWiFi: { nil })
+        let plugin = NetworkPlugin(host: makeHost(runner: recordingRunner(LogRecorder(), answers: answers)), probes: .fake())
+        plugin.visibilityChanged(isVisible: true)
         plugin.collect()
         waitUntil { !plugin.summary.processes.isEmpty }
         expect(plugin.summary.processes.map(\.name) == ["Chrome", "Safari"], "collect() publishes the sample for the panel, got \(plugin.summary.processes.map(\.name))")
@@ -297,7 +298,8 @@ enum NetworkTests {
         let plugin = NetworkPlugin(host: makeHost())
         expect(NetworkPlugin.identifier == "network" && plugin.title == "Network" && plugin.systemImage == "arrow.up.arrow.down", "the bundle keeps the tab's id, title and icon")
         expect(plugin.accent == Palette.blue, "and its accent")
-        expect(plugin.refreshInterval == 30, "network refresh interval should protect idle CPU")
+        expect(plugin.refreshInterval == 5 && plugin.backgroundInterval == 5, "it is called every 5 s for the latency pings, shown or hidden")
+        expect(NetworkSampling.trafficInterval == 30, "nettop and lsof stay at 30 s to protect idle CPU")
         expect(plugin.sharedFeeds == [.fastStats], "it reads the 1-second feed for its rates and graph")
         expect(NetworkCollector.negativeHostnameCacheTTL == 60, "a failed reverse lookup is retried after a minute")
     }
