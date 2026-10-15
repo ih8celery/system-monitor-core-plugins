@@ -14,6 +14,7 @@ enum NetworkLatencyTests {
         testReplyIsReadWithOrWithoutAnIPHeader()
         testDefaultGatewayFromTheRoutingTable()
         testPingAddressSetting()
+        testPingAddressRejectsAddressesThatAreNotAHost()
         testProbeRecordsRepliesAndFailures()
         testNoRouterStillPingsTheInternet()
         testNoRouterAndNoIPv4RouteIsUnknown()
@@ -123,10 +124,26 @@ enum NetworkLatencyTests {
         expect(absent.address == "1.1.1.1" && absent.problem == nil, "no setting pings 1.1.1.1")
         let chosen = LatencySettings.internetAddress(PluginSettings(values: ["pingAddress": .string("9.9.9.9")]))
         expect(chosen.address == "9.9.9.9" && chosen.problem == nil, "an IPv4 address is used as given")
+        let lan = LatencySettings.internetAddress(PluginSettings(values: ["pingAddress": .string("192.168.1.10")]))
+        expect(lan.address == "192.168.1.10" && lan.problem == nil, "a private address is a real host, so it is allowed")
         for bad: PluginSettings.Value in [.string("one.one.one.one"), .string("2606:4700::1111"), .string("1.1.1"), .number(1), .bool(true)] {
             let result = LatencySettings.internetAddress(PluginSettings(values: ["pingAddress": bad]))
             expect(result.address == "1.1.1.1", "\(bad) keeps the default, got \(result.address)")
-            expect(result.problem == "settings: \"pingAddress\" must be an IPv4 address such as 1.1.1.1; pinging 1.1.1.1", "and says so, got \(String(describing: result.problem))")
+            expect(result.problem == LatencySettings.problem, "and says so, got \(String(describing: result.problem))")
+        }
+        expect(LatencySettings.problem.hasPrefix("settings: \"pingAddress\" must be an IPv4 address such as 1.1.1.1"), "got \(LatencySettings.problem)")
+    }
+
+    /// Addresses no host on the internet answers from: a broadcast times out every round, so a
+    /// typo would become an "Internet unreachable" notification.
+    private static func testPingAddressRejectsAddressesThatAreNotAHost() {
+        for text in ["0.0.0.0", "0.1.2.3", "127.0.0.1", "127.8.8.8", "224.0.0.1", "239.255.255.250", "240.0.0.1", "255.255.255.255"] {
+            let result = LatencySettings.internetAddress(PluginSettings(values: ["pingAddress": .string(text)]))
+            expect(result.address == "1.1.1.1" && result.problem == LatencySettings.problem, "\(text) keeps the default and says so, got \(result)")
+        }
+        for text in ["1.0.0.1", "126.255.255.255", "128.0.0.1", "223.255.255.254"] {
+            let result = LatencySettings.internetAddress(PluginSettings(values: ["pingAddress": .string(text)]))
+            expect(result.address == text && result.problem == nil, "\(text) is a host address, got \(result)")
         }
     }
 

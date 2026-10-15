@@ -121,13 +121,26 @@ enum LatencySettings {
     static let key = "pingAddress"
     static let defaultAddress = "1.1.1.1"
 
-    /// An IPv4 address in dotted form is used as given. Anything else, a hostname included,
-    /// keeps the default and is reported, because a misspelt value must never silently do
-    /// nothing; a hostname would also mean a DNS lookup every five seconds.
+    /// An IPv4 address in dotted form is used as given, unless no host on the internet could
+    /// answer from it: "this network" (0.x), loopback (127.x), multicast and reserved (224 and
+    /// up, broadcast included), which would only ever time out and post a false outage. Anything
+    /// else, a hostname included, keeps the default and is reported, because a misspelt value
+    /// must never silently do nothing; a hostname would also mean a DNS lookup every five seconds.
     static func internetAddress(_ settings: PluginSettings) -> (address: String, problem: String?) {
         guard settings[key] != nil else { return (defaultAddress, nil) }
-        if let text = settings.string(forKey: key), let address = canonicalIPv4(text) { return (address, nil) }
-        return (defaultAddress, "settings: \"\(key)\" must be an IPv4 address such as \(defaultAddress); pinging \(defaultAddress)")
+        if let text = settings.string(forKey: key), let address = canonicalIPv4(text), isHostAddress(address) { return (address, nil) }
+        return (defaultAddress, problem)
+    }
+
+    static let problem = "settings: \"\(key)\" must be an IPv4 address such as \(defaultAddress), not a loopback, multicast or broadcast one; pinging \(defaultAddress)"
+
+    private static let thisNetwork = 0
+    private static let loopback = 127
+    private static let firstMulticast = 224
+
+    private static func isHostAddress(_ canonical: String) -> Bool {
+        guard let first = canonical.split(separator: ".").first.flatMap({ Int($0) }) else { return false }
+        return first != thisNetwork && first != loopback && first < firstMulticast
     }
 
     /// The address as `inet_ntop` writes it, which is how a reply's source is compared with it.
