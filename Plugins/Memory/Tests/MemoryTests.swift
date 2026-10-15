@@ -20,6 +20,8 @@ enum MemoryTests {
         testGPUFiguresComeFromIoreg()
         testAnUnquotedKeyPrefixIsNotMistakenForTheKey()
         testGPUIsReadEveryThirtySecondsAndPressureEverySample()
+        testGPUIsNotReadWhileHidden()
+        testPluginReadsGPUOnlyWhileShowing()
         testUnknownPressureShowsAsUnknown()
         testPluginPublishesWhatItCollected()
         testProcessesFollowTheFeed()
@@ -235,6 +237,47 @@ enum MemoryTests {
         expect(first.gpu.inUseMemory == 123_456_789 && soon.gpu.inUseMemory == 123_456_789, "between refreshes the cached GPU figures stand")
         expect(recorder.messages.filter { $0.hasPrefix("/usr/sbin/ioreg ") }.count == 2, "ioreg runs at the first sample and again once 30 seconds have passed, not every 3 seconds, got \(recorder.messages)")
         expect(pressureReads.count == 3, "the kernel's pressure level is cheap and read on every sample, got \(pressureReads.count)")
+    }
+
+    private static func ioregCalls(_ recorder: LogRecorder) -> Int {
+        recorder.messages.filter { $0.hasPrefix("/usr/sbin/ioreg ") }.count
+    }
+
+    /// Hidden, the host still calls every 10 s, but nobody sees the GPU pills: no ioreg at all.
+    /// Showing again reads at once, so the pills are fresh when the popover opens, then every 30 s.
+    private static func testGPUIsNotReadWhileHidden() {
+        let recorder = LogRecorder()
+        let collector = MemoryCollector(host: makeHost(runner: recordingRunner(recorder, answers: answers)), kernelPressureLevel: { 1 })
+        let start = Date(timeIntervalSince1970: 10_000)
+
+        collector.setShowing(false)
+        for step in 0..<20 { _ = collector.sample(at: start.addingTimeInterval(Double(step) * 10)) }
+        expect(ioregCalls(recorder) == 0, "twenty hidden collects run no ioreg, got \(ioregCalls(recorder))")
+
+        collector.setShowing(true)
+        let shown = collector.sample(at: start.addingTimeInterval(201))
+        expect(ioregCalls(recorder) == 1 && shown.gpu.inUseMemory == 123_456_789, "showing reads at once, got \(ioregCalls(recorder)) reads")
+        _ = collector.sample(at: start.addingTimeInterval(204))
+        expect(ioregCalls(recorder) == 1, "then keeps the 30-second cache")
+        _ = collector.sample(at: start.addingTimeInterval(232))
+        expect(ioregCalls(recorder) == 2, "and refreshes after 30 seconds, got \(ioregCalls(recorder))")
+
+        collector.setShowing(false)
+        collector.setShowing(true)
+        _ = collector.sample(at: start.addingTimeInterval(234))
+        expect(ioregCalls(recorder) == 3, "hiding and showing again within 30 s still reads on show, got \(ioregCalls(recorder))")
+    }
+
+    private static func testPluginReadsGPUOnlyWhileShowing() {
+        let recorder = LogRecorder()
+        let plugin = MemoryPlugin(host: makeHost(runner: recordingRunner(recorder, answers: answers)), kernelPressureLevel: { 1 })
+        plugin.visibilityChanged(isVisible: false)
+        for _ in 0..<5 { plugin.collect() }
+        expect(ioregCalls(recorder) == 0, "a hidden plugin never forks ioreg, got \(ioregCalls(recorder))")
+        plugin.visibilityChanged(isVisible: true)
+        plugin.collect()
+        plugin.collect()
+        expect(ioregCalls(recorder) == 1, "a showing plugin reads once at once, then waits out the cache, got \(ioregCalls(recorder))")
     }
 
     private static func testUnknownPressureShowsAsUnknown() {
