@@ -12,6 +12,7 @@ struct PowerSnapshot {
     var thermalState = "Unknown"
     var batteryPercent: Int?
     var chargeState: ChargeState?
+    var batteryDetail: BatteryDetail?
     var sleepAssertions: [String] = []
     var status = "Waiting for power sample"
     var health = SampleHealth.degraded

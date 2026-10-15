@@ -9,6 +9,7 @@ enum PowerCollector {
         let driver = host.run(path: ioregPath, arguments: ioregArguments)
         let assertions = host.run(path: "/usr/bin/pmset", arguments: ["-g", "assertions"])
         let parsedBattery = parseBatteryStatus(battery.output)
+        let driverEntry = driver.status == 0 ? batteryEntry(driver.output) : nil
         let parsedAssertions = assertions.status == 0 ? parseSleepAssertions(assertions.output) : []
         var status: [String] = []
         if battery.status != 0 { status.append("battery unavailable") }
@@ -19,7 +20,8 @@ enum PowerCollector {
             powerSource: parsedBattery.powerSource,
             thermalState: thermalStateLabel(ProcessInfo.processInfo.thermalState),
             batteryPercent: parsedBattery.percent,
-            chargeState: driver.status == 0 ? parseChargeState(driver.output) : nil,
+            chargeState: driverEntry.flatMap(chargeState(from:)),
+            batteryDetail: driverEntry.map(batteryDetail(from:)),
             sleepAssertions: parsedAssertions,
             status: status.isEmpty ? "Power sample OK" : status.joined(separator: ", "),
             health: SampleHealth(isOK: status.isEmpty)
