@@ -12,12 +12,15 @@ enum DiskLowSpaceTests {
         testAWrongLimitKeepsTheDefaultAndSaysSo()
         testTheRuleFiresOnCrossingNotWhileItStaysTrue()
         testTheRuleRearmsAfterRecovering()
+        testAFreeSpaceHoveringAtTheLimitFiresOnce()
+        testTheBandIsTenPercentOfALargeLimit()
         testAFirstReadingBelowTheLimitFires()
         testNoVolumeReadingChangesNothing()
         testAnOffRuleNeverFires()
         testTheNotificationNamesTheVolumeAndTheFreeSpace()
         testThePluginPostsOnceThroughTheHost()
         testThePluginReportsABadLimitInTheFooter()
+        testTurningBackgroundScansOffStillRunsTheRuleWhileHidden()
     }
 
     private static let gigabyte: UInt64 = 1_000_000_000
@@ -64,6 +67,8 @@ enum DiskLowSpaceTests {
         expect(posted.count == 1, "one notification for the crossing, none while it stays below, got \(posted.count)")
     }
 
+    /// Re-arming needs free space above the limit plus a band, max(1 GB, 10% of the limit), so a
+    /// disk hovering at the limit does not fire on every wobble across it.
     private static func testTheRuleRearmsAfterRecovering() {
         var rule = DiskLowSpaceRule(limitBytes: 10 * gigabyte)
         var count = 0
@@ -72,8 +77,29 @@ enum DiskLowSpaceTests {
             rule = step.rule
             if step.notification != nil { count += 1 }
         }
-        expect(count == 3, "each fresh crossing fires again (the host's cooldown limits how often it is shown), got \(count)")
+        expect(count == 3, "each fresh crossing after a real recovery fires again (the host's cooldown limits how often it is shown), got \(count)")
         expect(rule.checking(volume(freeGB: 10)).notification == nil, "exactly at the limit is not below it")
+    }
+
+    private static func testAFreeSpaceHoveringAtTheLimitFiresOnce() {
+        var rule = DiskLowSpaceRule(limitBytes: 10 * gigabyte)
+        var count = 0
+        // 10 GB limit: the band is max(1 GB, 1 GB) = 1 GB, so 10.5 and 10.9 are not a recovery.
+        for tenths in [95, 105, 95, 109, 95, 105, 95] as [UInt64] {
+            let step = rule.checking(DiskVolume(name: "Macintosh HD", path: "/", total: 500 * gigabyte, free: tenths * gigabyte / 10, isRoot: true))
+            rule = step.rule
+            if step.notification != nil { count += 1 }
+        }
+        expect(count == 1, "wobbling across the limit without recovering past the band fires once, got \(count)")
+        let recovered = rule.checking(volume(freeGB: 11)).rule
+        expect(recovered.checking(volume(freeGB: 9)).notification != nil, "11 GB is past the band, so the next drop fires")
+    }
+
+    private static func testTheBandIsTenPercentOfALargeLimit() {
+        // A 100 GB limit has a 10 GB band: 105 GB is not a recovery, 110 GB is.
+        let low = DiskLowSpaceRule(limitBytes: 100 * gigabyte).checking(volume(freeGB: 90)).rule
+        expect(low.checking(volume(freeGB: 105)).rule.checking(volume(freeGB: 90)).notification == nil, "105 GB is inside the band")
+        expect(low.checking(volume(freeGB: 110)).rule.checking(volume(freeGB: 90)).notification != nil, "110 GB clears it")
     }
 
     private static func testAFirstReadingBelowTheLimitFires() {
@@ -102,18 +128,25 @@ enum DiskLowSpaceTests {
 
     /// A plugin over the real volumes, with the limit set above any disk so the machine's own free
     /// space cannot change the result.
-    private static func makePlugin(settings: PluginSettings, directory: URL, notify: @escaping @Sendable (PluginNotification) -> Void) -> DiskPlugin {
+    private static func makePlugin(
+        settings: PluginSettings,
+        directory: URL,
+        plans: [DiskScanPlan] = [],
+        log: @escaping @Sendable (String) -> Void = { _ in },
+        runner: @escaping CommandRunner = { _, _, _, _ in CommandOutput(output: "", error: "", status: 0, didTimeout: false) },
+        notify: @escaping @Sendable (PluginNotification) -> Void
+    ) -> DiskPlugin {
         let host = HostServices(
             homeDirectory: "/tmp/systembar-tests",
             processes: Feed(initial: ProcessSummary()),
             fastStats: Feed(initial: FastStatsSnapshot()),
-            runner: { _, _, _, _ in CommandOutput(output: "", error: "", status: 0, didTimeout: false) },
-            log: { _ in },
+            runner: runner,
+            log: log,
             settings: settings,
             dataDirectory: directory,
             notify: notify
         )
-        return DiskPlugin(host: host, plans: [], now: { Date() }, listChildren: { _ in [] })
+        return DiskPlugin(host: host, plans: plans, now: { Date() }, listChildren: { parent in parent == "/tmp/systembar-tests" ? ["/tmp/systembar-tests/big"] : [] })
     }
 
     private static func testThePluginPostsOnceThroughTheHost() {
@@ -131,10 +164,40 @@ enum DiskLowSpaceTests {
         expect(quiet.posted().isEmpty, "a Mac with more than a megabyte free posts nothing")
     }
 
+    /// `backgroundScans: false` stops folder scans while hidden, not the low-space warning: the host
+    /// still makes its 15-minute call, and only the scan step of it is skipped.
+    private static func testTurningBackgroundScansOffStillRunsTheRuleWhileHidden() {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = LogRecorder()
+        let recording = HostServices.recordingNotifications()
+        let off = PluginSettings(values: ["backgroundScans": .bool(false), DiskLowSpaceRule.limitKey: .number(900_000)])
+        let plan = DiskScanPlan(kind: .overview, cadence: 3600, budget: 60, roots: [""])
+        let plugin = makePlugin(settings: off, directory: directory, plans: [plan], runner: recordingRunner(recorder, answers: [:]), notify: recording.notify)
+        expect(plugin.backgroundInterval == DiskSampling.backgroundInterval, "the host keeps calling while hidden, which --list-plugins reports")
+
+        plugin.collect()
+        plugin.drainScanQueue()
+        expect(recording.posted().count == 1, "the hidden call ran the low-space rule, got \(recording.posted())")
+        expect(!recorder.messages.contains { $0.hasPrefix("/usr/bin/du") }, "and skipped the scan, got \(recorder.messages)")
+
+        plugin.visibilityChanged(isVisible: true)
+        plugin.collect()
+        plugin.drainScanQueue()
+        expect(recorder.messages.contains { $0.hasPrefix("/usr/bin/du") }, "while the tab shows, scans run as always, got \(recorder.messages)")
+        plugin.visibilityChanged(isVisible: false)
+    }
+
     private static func testThePluginReportsABadLimitInTheFooter() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let plugin = makePlugin(settings: settings(.string("lots")), directory: directory, notify: { _ in })
+        let log = LogRecorder()
+        let plugin = makePlugin(settings: settings(.string("lots")), directory: directory, log: { log.record($0) }, notify: { _ in })
         expect(plugin.snapshot.settingsProblem?.contains(DiskLowSpaceRule.limitKey) == true, "a misspelt limit must never silently do nothing, got \(String(describing: plugin.snapshot.settingsProblem))")
+        expect(log.messages.count == 1 && log.messages[0].hasPrefix("SystemBar Disk: ") && log.messages[0].contains(DiskLowSpaceRule.limitKey), "and it is logged too, as the other tabs do, got \(log.messages)")
+
+        let quiet = LogRecorder()
+        _ = makePlugin(settings: settings(.number(5)), directory: directory, log: { quiet.record($0) }, notify: { _ in })
+        expect(quiet.messages.isEmpty, "a good limit logs nothing, got \(quiet.messages)")
     }
 }

@@ -203,7 +203,7 @@ enum DiskTests {
         let on = DiskPlugin(host: makeHost(dataDirectory: directory))
         expect(on.backgroundInterval == DiskSampling.backgroundInterval, "by default the host should call collect() every 15 minutes while the tab is hidden")
         let off = DiskPlugin(host: makeHost(settings: PluginSettings(values: ["backgroundScans": .bool(false)]), dataDirectory: directory))
-        expect(off.backgroundInterval == nil, "turned off, the plugin asks for nothing while hidden")
+        expect(off.backgroundInterval == DiskSampling.backgroundInterval, "turned off, the host still calls hourly-ish: only the scan step is skipped, the low-space rule still needs the call")
         let wrong = DiskPlugin(host: makeHost(settings: PluginSettings(values: ["backgroundScans": .number(1)]), dataDirectory: directory))
         expect(wrong.snapshot.settingsProblem?.contains("backgroundScans") == true, "a bad value is on the snapshot for the panel to show")
     }
