@@ -271,7 +271,7 @@ enum NetworkTests {
 
     private static func testPluginPublishesWhatItCollected() {
         let answers = [nettopCommand: nettopOutput, lsofCommand: lanOnlyLsofOutput]
-        let plugin = NetworkPlugin(host: makeHost(runner: recordingRunner(LogRecorder(), answers: answers)))
+        let plugin = NetworkPlugin(host: makeHost(runner: recordingRunner(LogRecorder(), answers: answers)), readWiFi: { nil })
         plugin.collect()
         waitUntil { !plugin.summary.processes.isEmpty }
         expect(plugin.summary.processes.map(\.name) == ["Chrome", "Safari"], "collect() publishes the sample for the panel, got \(plugin.summary.processes.map(\.name))")

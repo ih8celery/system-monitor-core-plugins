@@ -15,6 +15,7 @@ struct CorePluginTests {
             DiskScanTests.runAll()
             MemoryTests.runAll()
             NetworkTests.runAll()
+            NetworkWiFiTests.runAll()
             CapacityTests.runAll()
             DevPluginTests.runAll()
         }
