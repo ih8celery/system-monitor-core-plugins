@@ -21,7 +21,7 @@ enum MemoryAlertTests {
         testSwapRuleCanBeTurnedOff()
         testSwapVerdictDoesNotDependOnCadence()
         testSwapAfterALongGapFiresNothing()
-        testOneQuietSampleIsAllowedButNotTwo()
+        testQuietShareOfTheWindowIsAllowed()
         testNotificationIdsAreStable()
         testPluginPostsThroughTheHost()
     }
@@ -157,13 +157,22 @@ enum MemoryAlertTests {
         steady(megabytesPerMinute, minutes: minutes, step: step)
     }
 
-    private static func testSwapVerdictDoesNotDependOnCadence() {
-        for rate in [60, 120] as [UInt64] {
-            let visible = post(swapAt(step: 3, megabytesPerMinute: rate, minutes: 6)).map(\.id)
-            let hidden = post(swapAt(step: 10, megabytesPerMinute: rate, minutes: 6)).map(\.id)
-            expect(visible == hidden, "\(rate) MB a minute reads the same sampled every 3 s or every 10 s, got \(visible) and \(hidden)")
+    /// Swap is bursty: the counters step up every third second, so a 3 s collect sees each step
+    /// and a 10 s collect sees three or four at once. The verdict must be the same either way.
+    private static func burstyReadings(step: Int, megabytesPerBurst: UInt64, minutes: Int) -> [MemoryReading] {
+        stride(from: 0, through: minutes * 60, by: step).map { seconds in
+            reading(TimeInterval(seconds), swapped: 1_000 * mb + UInt64(seconds / 3) * megabytesPerBurst * mb)
         }
-        expect(post(swapAt(step: 3, megabytesPerMinute: 120, minutes: 6)).map(\.id) == ["memory.swap"], "and the high rate fires at either cadence")
+    }
+
+    private static func testSwapVerdictDoesNotDependOnCadence() {
+        for burst in [2, 10] as [UInt64] {
+            let visible = post(burstyReadings(step: 3, megabytesPerBurst: burst, minutes: 6)).map(\.id)
+            let hidden = post(burstyReadings(step: 10, megabytesPerBurst: burst, minutes: 6)).map(\.id)
+            expect(visible == hidden, "\(burst) MB every third second reads the same sampled every 3 s or every 10 s, got \(visible) and \(hidden)")
+        }
+        expect(post(burstyReadings(step: 3, megabytesPerBurst: 10, minutes: 6)).map(\.id) == ["memory.swap"], "200 MB a minute in bursts fires at either cadence")
+        expect(post(burstyReadings(step: 10, megabytesPerBurst: 10, minutes: 6)).map(\.id) == ["memory.swap"], "including hidden")
     }
 
     private static func testSwapAfterALongGapFiresNothing() {
@@ -176,17 +185,19 @@ enum MemoryAlertTests {
         expect(post(afterSleep).isEmpty, "and the window must fill again after the gap before the rule can fire")
     }
 
-    /// One sample's rate may dip under the threshold (the kernel counts in bursts); two may not.
-    private static func testOneQuietSampleIsAllowedButNotTwo() {
-        func withQuiet(_ quietSeconds: [Int]) -> [MemoryReading] {
+    /// A tenth of the window may be quiet (the kernel counts in bursts), whatever the cadence;
+    /// more than that is not sustained.
+    private static func testQuietShareOfTheWindowIsAllowed() {
+        func withQuiet(_ quietSeconds: Set<Int>) -> [MemoryReading] {
             var total: UInt64 = 0
             return stride(from: 0, through: 300, by: 10).map { seconds in
                 if seconds > 0 && !quietSeconds.contains(seconds) { total += 40 * mb }
-                return reading(TimeInterval(seconds), swapped: total)
+                return reading(TimeInterval(seconds), swapped: 1_000 * mb + total)
             }
         }
-        expect(post(withQuiet([150])).map(\.id) == ["memory.swap"], "one quiet sample in the window still fires")
-        expect(post(withQuiet([150, 160])).isEmpty, "two quiet samples do not")
+        expect(post(withQuiet([150])).map(\.id) == ["memory.swap"], "10 s quiet of 300 s still fires")
+        expect(post(withQuiet([150, 160, 170])).map(\.id) == ["memory.swap"], "30 s quiet, exactly a tenth, still fires")
+        expect(post(withQuiet([150, 160, 170, 180])).isEmpty, "40 s quiet, over a tenth, does not")
     }
 
     private static func testPluginPostsThroughTheHost() {

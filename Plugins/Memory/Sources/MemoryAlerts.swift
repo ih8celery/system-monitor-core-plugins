@@ -51,7 +51,9 @@ struct MemoryAlertRules {
     private static let coverageSlack = MemorySampling.backgroundInterval
     /// Samples further apart than this (a sleep, a stall) leave a hole the rule will not bridge.
     private static let longestGap = 3 * MemorySampling.backgroundInterval
-    private static let quietSamplesAllowed = 1
+    /// How much of the window may be quiet. A share of time, not a count of samples, so the same
+    /// load reads the same whether the host collects every 3 s (showing) or every 10 s (hidden).
+    private static let quietShareAllowed = 0.10
 
     let config: MemoryAlertConfig
     /// The highest level already announced since pressure last read Normal.
@@ -102,7 +104,7 @@ struct MemoryAlertRules {
     }
 
     /// Fires when swapping has held at or above the threshold for the whole window: every
-    /// stretch between samples at the rate, allowing one quiet sample (the kernel counts in
+    /// stretch between samples at the rate, allowing a tenth of the window to be quiet (the kernel counts in
     /// bursts). One burst, or a window that is short or has a hole in it (a sleep), is not it.
     /// Fires once, and again only after the condition has lapsed.
     private mutating func swapCrossing(_ reading: MemoryReading) -> PluginNotification? {
@@ -120,12 +122,12 @@ struct MemoryAlertRules {
     private func hasSustainedSwapping() -> Bool {
         guard swapWatch.span >= swapWatch.window - Self.coverageSlack else { return false }
         let thresholdBytesPerSecond = config.swapMegabytesPerMinute * 1_048_576 / 60
-        var quietSamples = 0
+        var quietSeconds = 0.0
         for interval in swapWatch.intervals {
             guard interval.seconds > 0, interval.seconds <= Self.longestGap else { return false }
-            if Double(interval.bytes) / interval.seconds < thresholdBytesPerSecond { quietSamples += 1 }
+            if Double(interval.bytes) / interval.seconds < thresholdBytesPerSecond { quietSeconds += interval.seconds }
         }
-        return quietSamples <= Self.quietSamplesAllowed
+        return quietSeconds <= Self.quietShareAllowed * swapWatch.window
     }
 }
 
