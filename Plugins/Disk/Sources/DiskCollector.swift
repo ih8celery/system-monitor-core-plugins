@@ -19,6 +19,7 @@ final class DiskCollector: @unchecked Sendable {
             .volumeNameKey,
             .volumeTotalCapacityKey,
             .volumeAvailableCapacityKey,
+            .volumeAvailableCapacityForImportantUsageKey,
             .volumeIsBrowsableKey,
             .volumeIsInternalKey
         ]
@@ -37,12 +38,17 @@ final class DiskCollector: @unchecked Sendable {
             guard let total = values.volumeTotalCapacity, total > 0 else { return nil }
 
             let free = UInt64(max(values.volumeAvailableCapacity ?? 0, 0))
+            // Finder's number; absent on a volume that does not report it, which then has no
+            // purgeable share rather than an invented one.
+            let important = UInt64(max(values.volumeAvailableCapacityForImportantUsage ?? 0, 0))
+            let purgeable = important > free ? important - free : 0
 
             return DiskVolume(
                 name: values.volumeName ?? url.lastPathComponent,
                 path: url.path,
                 total: UInt64(total),
                 free: free,
+                purgeable: purgeable,
                 isRoot: url.path == "/"
             )
         }

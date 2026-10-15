@@ -8,6 +8,10 @@ import SystemBarKit
 enum DiskTests {
     static func runAll() {
         testDiskVolumeMath()
+        testFinderFreeSpaceAddsThePurgeableShare()
+        testFreeSpaceLevelFollowsFinderFreeRatio()
+        testPurgeableNoteIsAbsentWhenNothingIsPurgeable()
+        testTheRootVolumeReportsBothCapacities()
         testLocalSnapshotParsing()
         testSnapshotCountRunsTmutilThroughTheHost()
         testSnapshotAppliesAReadingAndALedger()
@@ -31,11 +35,51 @@ enum DiskTests {
     private static func testDiskVolumeMath() {
         let volume = DiskVolume(name: "Macintosh HD", path: "/", total: 1000, free: 150, isRoot: true)
         expect(volume.used == 850, "used is capacity minus free: purgeable space is still on the disk, so it counts as used")
-        expect(volume.freeRatio == 0.15, "the free ratio drives the headline colour")
+        expect(volume.finderFreeRatio == 0.15, "with nothing purgeable the headline ratio is the plain free ratio")
 
         // A volume reporting more free than capacity must not underflow the unsigned used value.
         let overreported = DiskVolume(name: "Odd", path: "/odd", total: 100, free: 200, isRoot: false)
         expect(overreported.used == 0, "used clamps to zero rather than underflowing")
+    }
+
+    private static func testFinderFreeSpaceAddsThePurgeableShare() {
+        // 1000 total, 150 strictly free, 100 of what is used could be purged: Finder says 250.
+        let volume = DiskVolume(name: "Macintosh HD", path: "/", total: 1000, free: 150, purgeable: 100, isRoot: true)
+        expect(volume.finderFree == 250, "Finder's available is strictly free plus purgeable, got \(volume.finderFree)")
+        expect(volume.finderUsed == 750, "used as Finder counts it leaves the purgeable share out, got \(volume.finderUsed)")
+        expect(volume.used == 850, "the folder map's used still counts purgeable space, which is on the disk")
+        expect(volume.finderFreeRatio == 0.25, "the headline ratio is Finder's, got \(volume.finderFreeRatio)")
+
+        let overreported = DiskVolume(name: "Odd", path: "/odd", total: 100, free: 90, purgeable: 50, isRoot: false)
+        expect(overreported.finderFree == 100 && overreported.finderUsed == 0, "free never exceeds capacity, got \(overreported.finderFree)")
+    }
+
+    private static func testFreeSpaceLevelFollowsFinderFreeRatio() {
+        // Strictly 5% free would be critical; with purgeable space Finder shows 25%, so it is good.
+        let purgeable = DiskVolume(name: "A", path: "/", total: 1000, free: 50, purgeable: 200, isRoot: true)
+        expect(purgeable.freeSpaceLevel == .good, "the colour follows the headline number")
+        expect(DiskVolume(name: "B", path: "/", total: 1000, free: 150, purgeable: 0, isRoot: true).freeSpaceLevel == .caution, "15% is caution")
+        expect(DiskVolume(name: "C", path: "/", total: 1000, free: 101, purgeable: 0, isRoot: true).freeSpaceLevel == .caution, "just above 10% is caution")
+        expect(DiskVolume(name: "C2", path: "/", total: 1000, free: 100, purgeable: 0, isRoot: true).freeSpaceLevel == .critical, "exactly 10% is critical, as before: the bands are 'above'")
+        expect(DiskVolume(name: "D", path: "/", total: 1000, free: 99, purgeable: 0, isRoot: true).freeSpaceLevel == .critical, "below 10% is critical")
+        expect(DiskVolume(name: "E", path: "/", total: 1000, free: 200, purgeable: 0, isRoot: true).freeSpaceLevel == .caution, "exactly 20% stays caution, as before")
+        expect(DiskVolume(name: "F", path: "/", total: 1000, free: 201, purgeable: 0, isRoot: true).freeSpaceLevel == .good, "above 20% is good")
+    }
+
+    private static func testPurgeableNoteIsAbsentWhenNothingIsPurgeable() {
+        let some = DiskVolume(name: "A", path: "/", total: 2_000_000_000, free: 0, purgeable: 500_000_000, isRoot: true)
+        expect(some.purgeableNote == "of which \(byteString(500_000_000)) purgeable", "the note names the share, got \(String(describing: some.purgeableNote))")
+        let none = DiskVolume(name: "B", path: "/", total: 1000, free: 100, isRoot: true)
+        expect(none.purgeableNote == nil, "no purgeable space, no note")
+    }
+
+    private static func testTheRootVolumeReportsBothCapacities() {
+        guard let root = DiskCollector.collectDiskVolumes().first(where: \.isRoot) else {
+            expect(false, "the machine has a root volume")
+            return
+        }
+        expect(root.finderFree >= root.free, "Finder's available is never below strictly free: \(root.finderFree) vs \(root.free)")
+        expect(root.finderFree <= root.total, "and never above capacity")
     }
 
     private static func testLocalSnapshotParsing() {
