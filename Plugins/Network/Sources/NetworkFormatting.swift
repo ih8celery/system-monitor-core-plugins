@@ -1,6 +1,13 @@
 import Foundation
+import SystemBarKit
 
-/// The speed-test card's and latency section's formatters. Only this panel uses them.
+/// The Network panel's formatters. Only this panel uses them.
+
+/// Every network speed on the tab (the Down/Up cards and the Bandwidth rows) in 1000-based
+/// units, as Finder and Activity Monitor count them. The speed test keeps networkQuality's Mbps.
+func networkRateText(_ bytesPerSecond: Double) -> String {
+    fileRateString(bytesPerSecond)
+}
 
 func speedTestRateText(_ megabitsPerSecond: Double?) -> String {
     guard let megabitsPerSecond else { return "-- Mbps" }
