@@ -3,5 +3,5 @@
 worker_command: "env -u ANTHROPIC_API_KEY claude --permission-mode auto --model opus"
 max_workers: 6
 merge_policy: coordinator
-merge_requires_approval: true
+merge_requires_approval: false
 worker_timeout_minutes: 45
