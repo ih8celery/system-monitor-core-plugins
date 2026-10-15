@@ -24,6 +24,11 @@ enum MemoryTests {
         testPluginPublishesWhatItCollected()
         testProcessesFollowTheFeed()
         testPluginIdentityMatchesTheOldTab()
+        testSwapCountersBecomeBytes()
+        testNoSwapLineWhenNothingSwappedInTheLastMinute()
+        testSwapLineShowsBytesMovedInTheLastMinute()
+        testSwapActivityForgetsWhatIsOlderThanAMinute()
+        testSwapCounterResetShowsNothing()
     }
 
     private static func testSwapStatText() {
@@ -267,5 +272,52 @@ enum MemoryTests {
         expect(plugin.accent == Palette.good, "and its accent")
         expect(plugin.refreshInterval == 3 && plugin.sharedFeeds == [.processes], "and its 3-second interval and its need for the process feed")
         expect(MemorySampling.gpuRefreshInterval == 30, "ioreg stays on its 30-second cache")
+    }
+
+    // MARK: Swap speed
+
+    private static func swapReading(at seconds: TimeInterval, ins: UInt64, outs: UInt64) -> MemoryReading {
+        MemoryReading(
+            memory: MemorySnapshot(swapInsTotal: ins * page, swapOutsTotal: outs * page),
+            gpu: GPUSnapshot(), pressure: nil, sampledAt: Date(timeIntervalSince1970: seconds)
+        )
+    }
+
+    private static func swapText(_ readings: [MemoryReading]) -> String? {
+        let stats = readings.reduce(MemoryStatsSnapshot()) { $0.recording($1) }
+        return swapActivityText(stats.swapActivity)
+    }
+
+    private static func testSwapCountersBecomeBytes() {
+        let counts = MemoryPageCounts(total: 100 * page, pageSize: page, swapIns: 7, swapOuts: 9)
+        let memory = memorySnapshot(from: counts)
+        expect(memory.swapInsTotal == 7 * page && memory.swapOutsTotal == 9 * page, "swapins and swapouts are page counts times the page size")
+    }
+
+    private static func testNoSwapLineWhenNothingSwappedInTheLastMinute() {
+        expect(swapText([]) == nil, "no readings, no line")
+        expect(swapText([swapReading(at: 0, ins: 500, outs: 900)]) == nil, "one reading has no delta, so no line")
+        let still = [swapReading(at: 0, ins: 500, outs: 900), swapReading(at: 3, ins: 500, outs: 900), swapReading(at: 6, ins: 500, outs: 900)]
+        expect(swapText(still) == nil, "counters that did not move hide the line, even when they are large")
+    }
+
+    private static func testSwapLineShowsBytesMovedInTheLastMinute() {
+        let moving = [swapReading(at: 0, ins: 100, outs: 100), swapReading(at: 3, ins: 100, outs: 164), swapReading(at: 6, ins: 132, outs: 164)]
+        let expected = "Swapping \(byteString(64 * page)) out, \(byteString(32 * page)) in"
+        expect(swapText(moving) == expected, "the line is the newest counters less the oldest, got \(swapText(moving) ?? "nil")")
+        let outOnly = [swapReading(at: 0, ins: 5, outs: 5), swapReading(at: 3, ins: 5, outs: 69)]
+        expect(swapText(outOnly) == "Swapping \(byteString(64 * page)) out, \(byteString(0)) in", "one direction alone still shows, the other reads zero")
+    }
+
+    private static func testSwapActivityForgetsWhatIsOlderThanAMinute() {
+        let burst = [swapReading(at: 0, ins: 0, outs: 0), swapReading(at: 3, ins: 0, outs: 640)]
+        let later = burst + [swapReading(at: 70, ins: 0, outs: 640), swapReading(at: 73, ins: 0, outs: 640)]
+        expect(swapText(burst) != nil, "a burst shows right away")
+        expect(swapText(later) == nil, "and is gone once a minute has passed with no more swapping")
+    }
+
+    private static func testSwapCounterResetShowsNothing() {
+        let reset = [swapReading(at: 0, ins: 900, outs: 900), swapReading(at: 3, ins: 0, outs: 0)]
+        expect(swapText(reset) == nil, "counters that go backwards (a reboot, a failed read) do not wrap into a huge figure")
     }
 }

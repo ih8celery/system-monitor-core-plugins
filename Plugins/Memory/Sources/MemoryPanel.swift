@@ -22,6 +22,13 @@ struct MemoryPanel: View {
                         .help("The kernel's own memory pressure level, the signal behind Activity Monitor's pressure graph. Warning means macOS has started compressing or swapping to keep up; Critical means it is struggling.")
                 }
 
+                if let swapText = swapActivityText(plugin.stats.swapActivity) {
+                    Text(swapText)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.caution)
+                        .help("How much macOS moved between memory and the swap file over the last minute. It only shows while that is happening.")
+                }
+
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 10) {
                         Text("GPU busy")
