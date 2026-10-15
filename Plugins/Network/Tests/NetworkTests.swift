@@ -16,6 +16,8 @@ enum NetworkTests {
         testSampleRunsNettopAndLsofThroughTheHost()
         testSampleSaysWhichCommandFailed()
         testSummaryKeepsResolvedNamesAcrossSamples()
+        testBoundedCacheDropsTheOldestFirst()
+        testSummaryKeepsOnlyTheNewestResolvedNames()
         testSpeedTestRunsNetworkQualityThroughTheHost()
         testSpeedTestStateShowsEachStage()
         testSpeedTestSaysItTimedOut()
@@ -191,9 +193,30 @@ enum NetworkTests {
         expect(reading.processes.isEmpty && reading.destinations.isEmpty, "and nothing is invented")
     }
 
+    private static func testBoundedCacheDropsTheOldestFirst() {
+        let cache = BoundedCache<String, Int>(capacity: 3).setting(1, for: "a").setting(2, for: "b").setting(3, for: "c")
+        expect(cache.count == 3 && cache["a"] == 1, "up to its capacity, everything is kept")
+        let full = cache.setting(4, for: "d")
+        expect(full.count == 3 && full["a"] == nil && full["d"] == 4, "past it, the oldest goes, got a=\(String(describing: full["a"]))")
+        let refreshed = cache.setting(10, for: "a").setting(4, for: "d")
+        expect(refreshed["a"] == 10 && refreshed["b"] == nil, "setting a key again makes it the newest, got a=\(String(describing: refreshed["a"])) b=\(String(describing: refreshed["b"]))")
+        expect(cache.count == 3 && cache["a"] == 1, "and the cache it came from is unchanged")
+        expect(BoundedCache<String, Int>().capacity == 512, "512 entries unless told otherwise")
+    }
+
+    /// A tab open for days meets many destinations; their names must not pile up forever.
+    private static func testSummaryKeepsOnlyTheNewestResolvedNames() {
+        let addresses = (0..<600).map { "10.0.\($0 / 256).\($0 % 256)" }
+        let summary = addresses.reduce(NetworkSummary()) { $0.resolving($1, to: "host-\($1)") }
+        expect(summary.resolvedHostnames.count == 512, "got \(summary.resolvedHostnames.count)")
+        expect(summary.resolvedHostnames[addresses[0]] == nil && summary.resolvedHostnames[addresses[599]] == "host-\(addresses[599])", "the oldest names go first")
+        let next = summary.applying(NetworkReading(processes: [], destinations: [], status: "Network sample OK", health: .ok))
+        expect(next.resolvedHostnames.count == 512, "and a new sample keeps the cap")
+    }
+
     private static func testSummaryKeepsResolvedNamesAcrossSamples() {
         let named = NetworkSummary().resolving("17.253.144.10", to: "apple.com")
-        expect(named.resolvedHostnames == ["17.253.144.10": "apple.com"], "a finished lookup is recorded by address")
+        expect(named.resolvedHostnames["17.253.144.10"] == "apple.com" && named.resolvedHostnames.count == 1, "a finished lookup is recorded by address")
         let next = named.applying(NetworkReading(processes: [], destinations: [], status: "Network sample OK", health: .ok))
         expect(next.resolvedHostnames["17.253.144.10"] == "apple.com", "a new sample keeps the names already resolved")
         expect(next.status == "Network sample OK" && next.health == .ok, "and takes the new status")

@@ -42,7 +42,8 @@ struct NetworkSummary {
     var totalProcessCount = 0
     var maxCombinedRate: Double = 1
     var destinations: [NetworkDestination] = []
-    var resolvedHostnames: [String: String] = [:]
+    /// The newest reverse lookups by address, capped, since a tab open for days meets many.
+    var resolvedHostnames = BoundedCache<String, String>()
     var status = "Waiting for network sample"
     var health = SampleHealth.degraded
 
@@ -51,7 +52,7 @@ struct NetworkSummary {
     init(
         processes: [NetworkProcessSnapshot],
         destinations: [NetworkDestination],
-        resolvedHostnames: [String: String],
+        resolvedHostnames: BoundedCache<String, String>,
         status: String,
         health: SampleHealth,
         limit: Int = 28
@@ -126,7 +127,7 @@ extension NetworkSummary {
     /// A copy with one finished reverse lookup recorded by address.
     func resolving(_ address: String, to hostname: String) -> NetworkSummary {
         var next = self
-        next.resolvedHostnames[address] = hostname
+        next.resolvedHostnames = resolvedHostnames.setting(hostname, for: address)
         return next
     }
 }
