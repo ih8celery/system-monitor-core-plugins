@@ -107,8 +107,14 @@ enum PowerBatteryDetailTests {
         }
     }
 
+    /// The person's locale picks the unit, as macOS does: Celsius in the UK, Fahrenheit in the US.
     private static func testTemperatureLabelSaysWhoseItIs() {
-        expect(batteryTemperatureLabel(30.69) == "30.7 °C", "temperature to one decimal, got \(batteryTemperatureLabel(30.69))")
+        let british = batteryTemperatureLabel(30.69, locale: Locale(identifier: "en_GB"))
+        expect(british == "30.7°C", "a UK locale reads Celsius to one decimal, got \(british)")
+        let american = batteryTemperatureLabel(30.69, locale: Locale(identifier: "en_US"))
+        expect(american == "87.2°F", "a US locale reads Fahrenheit to one decimal, got \(american)")
+        let whole = batteryTemperatureLabel(30, locale: Locale(identifier: "en_GB"))
+        expect(whole == "30°C", "one decimal at most, so a whole degree has none, got \(whole)")
     }
 
     private static func testHealthLabel() {
