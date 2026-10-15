@@ -43,6 +43,9 @@ extension PowerCollector {
               let archive = top["policies"] as? Data,
               let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: archive)
         else { return nil }
+        // Both are the defaults for this initialiser; set here so the safety does not rest on that.
+        unarchiver.requiresSecureCoding = true
+        unarchiver.decodingFailurePolicy = .setErrorAndReturn
         unarchiver.setClass(ChargePolicyRecord.self, forClassName: "ChargeCtrlPolicy")
         let decoded = unarchiver.decodeObject(of: [NSArray.self, ChargePolicyRecord.self], forKey: NSKeyedArchiveRootObjectKey)
         unarchiver.finishDecoding()
