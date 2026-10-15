@@ -4,7 +4,8 @@ import SwiftUI
 import SystemBarKit
 
 /// The Network tab as a bundle. The host calls `collect()` on this plugin's queue every 5 s, shown
-/// or hidden; each collect pings the router and the internet. While the tab shows, a collect
+/// or hidden; each collect pings the router and the internet, then checks the notification rules
+/// against that round, so they work with the window closed. While the tab shows, a collect
 /// also reads the Wi-Fi link, and every 30 s runs nettop and lsof, publishes on main, then asks
 /// the collector for the destinations' hostnames, which it looks up on its own DNS queue. The
 /// rate cards and graph follow the host's 1-second feed, and the speed test runs only when the
@@ -30,6 +31,8 @@ public final class NetworkPlugin: NSObject, TabPlugin, ObservableObject {
     private let schedule = TrafficSchedule()
     /// From settings, once, so the plugin's queue reads it without touching `latency`.
     private let internetAddress: String
+    /// The notification rules. Touched only in `collect()`, which the host never runs beside itself.
+    private var rules: NetworkRules
     /// A speed test runs for up to 30 seconds, so it gets its own queue rather than holding up
     /// the plugin's collects.
     private let speedTestQueue = DispatchQueue(label: "systembar.network.speedtest", qos: .utility)
@@ -46,7 +49,11 @@ public final class NetworkPlugin: NSObject, TabPlugin, ObservableObject {
         collector = NetworkCollector(host: host)
         let setting = LatencySettings.internetAddress(host.settings)
         internetAddress = setting.address
-        latency = LatencyState(internetAddress: setting.address, settingsProblem: setting.problem)
+        let ruleSettings = NetworkRuleSettings.read(host.settings)
+        rules = NetworkRules(settings: ruleSettings.settings)
+        let problems = [setting.problem].compactMap { $0 } + ruleSettings.problems
+        problems.forEach { host.log("SystemBar: network \($0)") }
+        latency = LatencyState(internetAddress: setting.address, settingsProblems: problems)
         super.init()
         fastStats = host.fastStats.value
         feedSubscription = host.fastStats.publisher.sink { [weak self] snapshot in
@@ -57,6 +64,9 @@ public final class NetworkPlugin: NSObject, TabPlugin, ObservableObject {
     public func collect() {
         let now = probes.now()
         let sample = LatencyProbe.measure(router: probes.gateway(), internet: internetAddress, at: now, ping: probes.ping)
+        let checked = rules.checking(sample, internetAddress: internetAddress)
+        rules = checked.rules
+        checked.notifications.forEach { host.notify(id: $0.id, title: $0.title, body: $0.body) }
         let due = schedule.check(at: now)
         let reading = due.isTrafficDue ? collector.sample() : nil
         let wifi = due.isVisible ? probes.readWiFi() : nil
