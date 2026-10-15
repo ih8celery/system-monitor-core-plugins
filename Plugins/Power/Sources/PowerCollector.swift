@@ -17,6 +17,7 @@ enum PowerCollector {
         let parsedBattery = parseBatteryStatus(battery.output)
         let driverEntry = driver.status == 0 ? batteryEntry(driver.output) : nil
         let isExternal = driverEntry?["ExternalConnected"] as? Bool
+        let settling = isSettling(isExternal)
         let parsedAssertions = assertions.status == 0 ? parseSleepAssertions(assertions.output) : []
         var status: [String] = []
         if battery.status != 0 { status.append("battery unavailable") }
@@ -30,9 +31,10 @@ enum PowerCollector {
             chargeState: driverEntry.flatMap(chargeState(from:)),
             batteryDetail: driverEntry.flatMap(batteryDetail(from:)),
             chargeLimit: chargeLimit(fileAt: chargeLimitFile),
-            powerDraw: powerDraw(from: driverEntry, sourceJustChanged: isSettling(isExternal)),
+            powerDraw: powerDraw(from: driverEntry, sourceJustChanged: settling),
             hasDriverReading: driver.status == 0,
             isExternal: isExternal,
+            isSettling: settling,
             sleepAssertions: parsedAssertions,
             status: status.isEmpty ? "Power sample OK" : status.joined(separator: ", "),
             health: SampleHealth(isOK: status.isEmpty)

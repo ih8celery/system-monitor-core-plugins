@@ -5,10 +5,15 @@ import SystemBarKit
 /// for the figures there are, or a line saying this Mac reports none.
 struct PowerDrawView: View {
     let draw: PowerDraw?
+    let flow: PowerFlow?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionTitle("Power draw")
+            if let flow {
+                PowerFlowView(flow: flow)
+                    .padding(.vertical, 6)
+            }
             if pills.isEmpty {
                 Text("This Mac reports no power figures.")
                     .font(.caption)

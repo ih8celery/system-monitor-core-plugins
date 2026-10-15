@@ -24,7 +24,10 @@ struct PowerPanel: View {
                 }
 
                 if plugin.snapshot.hasDriverReading {
-                    PowerDrawView(draw: plugin.snapshot.powerDraw)
+                    PowerDrawView(
+                        draw: plugin.snapshot.powerDraw,
+                        flow: PowerFlow(draw: plugin.snapshot.powerDraw, isExternal: plugin.snapshot.isExternal, isSettling: plugin.snapshot.isSettling)
+                    )
                 }
 
                 if let detail = plugin.snapshot.batteryDetail {

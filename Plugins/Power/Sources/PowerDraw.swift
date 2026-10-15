@@ -70,7 +70,7 @@ func wattsLabel(_ watts: Double) -> String {
 }
 
 /// Below this the battery is neither charging nor giving, whatever the sign says.
-private let idleBatteryWatts = 0.05
+let idleBatteryWatts = 0.05
 
 func batteryFlowLabel(_ watts: Double) -> String {
     if abs(watts) < idleBatteryWatts { return "Idle" }
