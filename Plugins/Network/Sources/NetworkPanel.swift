@@ -9,8 +9,8 @@ struct NetworkPanel: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
-                    RateCard(title: "Down", value: rateString(plugin.fastStats.currentDownloadRate), color: Palette.blue)
-                    RateCard(title: "Up", value: rateString(plugin.fastStats.currentUploadRate), color: Palette.tangerine)
+                    RateCard(title: "Down", value: networkRateText(plugin.fastStats.currentDownloadRate), color: Palette.blue)
+                    RateCard(title: "Up", value: networkRateText(plugin.fastStats.currentUploadRate), color: Palette.tangerine)
                 }
 
                 if let wifi = plugin.wifi {
@@ -249,17 +249,17 @@ struct NetworkProcessRow: View {
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                 Spacer()
-                Text(rateString(row.combinedRate))
+                Text(row.combinedRateText)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
             }
             HStack {
                 ProgressBar(value: row.combinedRate / maxRate, color: Palette.blue)
                     .frame(height: 6)
-                Text("D \(rateString(row.downloadRate))")
+                Text(row.downloadRateText)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(width: 74, alignment: .trailing)
-                Text("U \(rateString(row.uploadRate))")
+                Text(row.uploadRateText)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(width: 74, alignment: .trailing)
