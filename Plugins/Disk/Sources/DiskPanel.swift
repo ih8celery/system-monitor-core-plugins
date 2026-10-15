@@ -22,6 +22,10 @@ struct DiskPanel: View {
 
     private var snapshot: DiskSnapshot { plugin.snapshot }
 
+    /// Every size on the panel, legends included, in Apple's decimal units, so the header and
+    /// the legends under the bars agree.
+    static let sizeFormat: (UInt64) -> String = { fileByteString($0) }
+
     var body: some View {
         HStack(spacing: 0) {
             leftColumn
@@ -67,13 +71,13 @@ struct DiskPanel: View {
             if let boot = snapshot.boot {
                 SegmentedBar(segments: capacityRows(for: boot).filter { $0.value > 0 }, total: boot.total)
                     .frame(height: 34)
-                SegmentedLegend(rows: capacityRows(for: boot))
+                SegmentedLegend(rows: capacityRows(for: boot), format: Self.sizeFormat)
 
                 SectionTitle("Where the space is")
                 let distribution = DiskRows.distribution(biggest: snapshot.biggest, volume: boot, homeDirectory: plugin.homeDirectory)
                 SegmentedBar(segments: distribution.filter { $0.value > 0 }, total: boot.total)
                     .frame(height: 20)
-                SegmentedLegend(rows: distribution)
+                SegmentedLegend(rows: distribution, format: Self.sizeFormat)
             }
 
             if !snapshot.otherVolumes.isEmpty {
@@ -254,7 +258,7 @@ struct DiskPanel: View {
 
 /// The two capacity buckets. The legend shows both even when one is zero; the bar filters those
 /// out itself, since it cannot draw a zero-width segment meaningfully.
-private func capacityRows(for volume: DiskVolume) -> [BarSegment] {
+func capacityRows(for volume: DiskVolume) -> [BarSegment] {
     [
         BarSegment(label: "Used", value: volume.finderUsed, color: Palette.blue),
         BarSegment(label: "Purgeable", value: volume.finderFree - min(volume.free, volume.finderFree), color: Palette.cyan),
