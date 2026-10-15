@@ -54,15 +54,17 @@ enum NetworkWiFiTests {
 
     private static func testPluginPublishesTheWiFiReading() {
         let reading = signal(rssi: -60)
-        let plugin = NetworkPlugin(host: makeHost(), readWiFi: { reading })
+        let plugin = NetworkPlugin(host: makeHost(), probes: .fake(readWiFi: { reading }))
         expect(plugin.wifi == nil, "nothing is shown before the first collect")
+        plugin.visibilityChanged(isVisible: true)
         plugin.collect()
         waitUntil { plugin.wifi != nil }
         expect(plugin.wifi == reading, "collect() publishes the Wi-Fi reading for the panel, got \(String(describing: plugin.wifi))")
     }
 
     private static func testPluginShowsNoWiFiWithoutAnInterface() {
-        let plugin = NetworkPlugin(host: makeHost(), readWiFi: { nil })
+        let plugin = NetworkPlugin(host: makeHost(), probes: .fake())
+        plugin.visibilityChanged(isVisible: true)
         plugin.collect()
         waitUntil { plugin.summary.status != NetworkSummary().status }
         expect(plugin.wifi == nil, "on Ethernet, or with Wi-Fi off, the card stays hidden")

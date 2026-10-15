@@ -1,7 +1,7 @@
 import Foundation
 
 /// The radio band the Wi-Fi interface is on.
-enum WiFiBand: Equatable {
+enum WiFiBand: Equatable, Sendable {
     case ghz2, ghz5, ghz6, unknown
 
     var label: String? {
@@ -43,7 +43,7 @@ enum WiFiVerdict: Equatable {
 
 /// One reading of the Wi-Fi link. No network name: CoreWLAN gives that only with Location
 /// permission.
-struct WiFiSignal: Equatable {
+struct WiFiSignal: Equatable, Sendable {
     /// Received signal strength, dBm.
     let rssi: Int
     /// Background noise, dBm; nil when the interface does not report it.
