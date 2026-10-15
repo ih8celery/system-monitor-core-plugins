@@ -12,7 +12,7 @@ libs="$app/Contents/Frameworks"
 # Every tab in this repo, and the ones installed when none are named. Power and Dev are kept and
 # tested but not installed by default.
 ALL_TABS=(Power Dev Memory Disk Network CPU)
-DEFAULT_TABS=(Memory Disk Network CPU)
+DEFAULT_TABS=(Memory Disk Network CPU Power)
 
 die() {
   echo "$1" >&2

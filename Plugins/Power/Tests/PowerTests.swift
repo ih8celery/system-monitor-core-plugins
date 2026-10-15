@@ -28,6 +28,7 @@ enum PowerTests {
         PowerFlowTests.runAll()
         PowerHistoryTests.runAll()
         PowerAlertTests.runAll()
+        PowerNoBatteryTests.runAll()
     }
 
     private static func testBatteryParsing() {

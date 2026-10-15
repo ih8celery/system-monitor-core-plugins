@@ -29,10 +29,12 @@ path_entry() { printf '{"path":"%s"}' "$SYSTEMBAR_PLUGINS_DIR/$1.bundle"; }
 installed() { ls "$SYSTEMBAR_PLUGINS_DIR" 2>/dev/null | tr '\n' ' '; }
 
 backup='{"path":"~/Library/Application Support/SystemBar/PlugIns/SystemBackupTab.bundle","settings":{"command":"/x/backup"}}'
-four="$(path_entry Memory),$(path_entry Disk),$(path_entry Network),$(path_entry CPU)"
+# The default tabs, in the order a fresh install lists them.
+defaults="$(path_entry Memory),$(path_entry Disk),$(path_entry Network),$(path_entry CPU),$(path_entry Power)"
 
 # 1. A file from when SystemBar shipped the tabs: each name entry becomes a path entry in its
-#    place, Power and Dev's entries go, and an entry from another project is left alone.
+#    place (Power's too, now that it installs by default), Dev's goes, and an entry from another
+#    project is left alone.
 cat > "$SYSTEMBAR_PLUGINS_FILE" <<JSON
 { "plugins": [
   { "name": "Power.bundle" }, { "name": "Dev.bundle" }, { "name": "Memory.bundle" },
@@ -41,8 +43,8 @@ cat > "$SYSTEMBAR_PLUGINS_FILE" <<JSON
 ] }
 JSON
 scripts/install.sh install > /dev/null
-[[ "$(plugins)" == "[$four,$backup]" ]] || fail "migration: got $(plugins)"
-[[ "$(installed)" == "CPU.bundle Disk.bundle Memory.bundle Network.bundle " ]] || fail "migration installed: $(installed)"
+[[ "$(plugins)" == "[$(path_entry Power),$(path_entry Memory),$(path_entry Disk),$(path_entry Network),$(path_entry CPU),$backup]" ]] || fail "migration: got $(plugins)"
+[[ "$(installed)" == "CPU.bundle Disk.bundle Memory.bundle Network.bundle Power.bundle " ]] || fail "migration installed: $(installed)"
 
 # 2. Installing again changes nothing.
 before=$(plugins)
@@ -56,14 +58,14 @@ scripts/install.sh install > /dev/null
 [[ "$(plugins)" == "$edited" ]] || fail "install overwrote an edited entry: $(plugins)"
 
 # 4. A tab left out by default can be installed by name, and goes at the end.
-scripts/install.sh install Power > /dev/null
-[[ "$(jq -c '.plugins[-1]' "$SYSTEMBAR_PLUGINS_FILE")" == "$(path_entry Power)" ]] || fail "install Power: $(plugins)"
-[[ -d "$SYSTEMBAR_PLUGINS_DIR/Power.bundle" ]] || fail "install Power: no bundle"
+scripts/install.sh install Dev > /dev/null
+[[ "$(jq -c '.plugins[-1]' "$SYSTEMBAR_PLUGINS_FILE")" == "$(path_entry Dev)" ]] || fail "install Dev: $(plugins)"
+[[ -d "$SYSTEMBAR_PLUGINS_DIR/Dev.bundle" ]] || fail "install Dev: no bundle"
 
 # 5. Uninstalling one tab removes only its bundle and entry.
-scripts/install.sh uninstall Power > /dev/null
-[[ "$(plugins)" == "$edited" ]] || fail "uninstall Power: $(plugins)"
-[[ ! -e "$SYSTEMBAR_PLUGINS_DIR/Power.bundle" ]] || fail "uninstall Power left its bundle"
+scripts/install.sh uninstall Dev > /dev/null
+[[ "$(plugins)" == "$edited" ]] || fail "uninstall Dev: $(plugins)"
+[[ ! -e "$SYSTEMBAR_PLUGINS_DIR/Dev.bundle" ]] || fail "uninstall Dev left its bundle"
 
 # 6. Uninstalling with no names removes every tab from this repo, and nothing else.
 scripts/install.sh uninstall > /dev/null
@@ -81,11 +83,12 @@ if scripts/install.sh install Clock > /dev/null 2>&1; then fail "an unknown tab 
 [[ "$(plugins)" == "[]" ]] || fail "an unknown tab name changed the list: $(plugins)"
 
 # 9. With no plugins.json yet, SystemBar writes its own default first, then the tabs are added.
-#    Whatever that default holds, none of this repo's tabs end up listed by name.
+#    Whatever that default holds, none of this repo's tabs end up listed by name, and every
+#    default tab, Power included, is listed by path.
 rm -f "$SYSTEMBAR_PLUGINS_FILE"
 scripts/install.sh install > /dev/null
 [[ "$(jq -c '[.plugins[] | select(.name)]' "$SYSTEMBAR_PLUGINS_FILE")" == "[]" ]] || fail "fresh file kept name entries: $(plugins)"
-[[ "$(jq -c '[.plugins[] | select(.path)]' "$SYSTEMBAR_PLUGINS_FILE")" == "[$four]" ]] || fail "fresh file: $(plugins)"
+[[ "$(jq -c '[.plugins[] | select(.path)]' "$SYSTEMBAR_PLUGINS_FILE")" == "[$defaults]" ]] || fail "fresh file: $(plugins)"
 
 # 10. A name entry's other keys carry over to its path entry, and a dropped entry is reported.
 cat > "$SYSTEMBAR_PLUGINS_FILE" <<JSON

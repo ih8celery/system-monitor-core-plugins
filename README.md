@@ -1,7 +1,7 @@
 # SystemBar core plugins
 
-The tabs that used to ship inside [SystemBar](https://github.com/ih8celery/swift-ui-system-monitor): Memory, Disk, Network
-and CPU, plus Power and Dev, which are kept and tested but not installed by default. Each is an
+The tabs that used to ship inside [SystemBar](https://github.com/ih8celery/swift-ui-system-monitor): Memory, Disk, Network,
+CPU and Power, plus Dev, which is kept and tested but not installed by default. Each is an
 ordinary SystemBar plugin, built against the SDK inside the installed app and installed into
 SystemBar's plugin folder like any other.
 
@@ -13,14 +13,14 @@ SystemBar's plugin folder like any other.
 | **Memory** | Used and available the way Activity Monitor counts them, the kernel's pressure level, the wired/active/inactive/compressed/free/other breakdown (it adds up to the machine's memory), swap and, while it is moving, how much was swapped in and out in the last minute, a graph of the last 15 minutes of memory used coloured by pressure (filled in the background, so it is full when you open the tab), optional notifications for rising pressure and heavy swapping (see Memory notifications below), how much memory the GPU holds (how busy it is lives on the CPU tab), and top processes by memory |
 | **Disk** | Free and used space per volume, Time Machine local snapshots, a map of which folders hold the space, and what grew or shrank over the last day or week, measured by scans that run in the background and saved between launches, every number stamped with its age, and a read/write speed graph of the internal disk for the last two minutes (the tab reads the counters itself, in process, every second while it shows and every 5 s while hidden, so the graph is already full when you open it). The headline is free space as Finder shows it (`volumeAvailableCapacityForImportantUsageKey`, which counts purgeable space as available), with "of which X purgeable" underneath; the capacity bar splits Used, Purgeable and Free, and the folder map below it still counts purgeable space as used, because it is on the disk |
 | **Network** | Live up/down bandwidth with the totals received and sent since the Mac started up, the Wi-Fi signal with a good/fair/poor verdict (hidden when Wi-Fi is off or not joined to a network), latency to the router and to the internet with failed pings marked in red, which processes are talking and where to, and an on-demand speed test |
-| **Power** (not installed by default) | Battery and power source, the sleep assertions keeping your Mac awake with their likely causes, a graph of the Mac's power draw over the last hour or day (filled in the background and saved between launches, with gaps where the Mac slept or SystemBar was closed), and optional notifications for a low battery and for a charger that is not charging (see Power notifications below) |
+| **Power** | Battery and power source, the charge limit set in System Settings (read from macOS's own `/Library/Preferences/com.apple.powerd.charging.plist`, no command), what the Mac, battery and charger draw with a picture of where the power flows, battery health, cycles, temperature and time remaining, the sleep assertions keeping your Mac awake with their likely causes, a graph of the Mac's power draw over the last hour or day (filled in the background and saved between launches, with gaps where the Mac slept or SystemBar was closed), and optional notifications for a low battery and for a charger that is not charging (see Power notifications below) |
 | **Dev** (not installed by default) | How much capacity the machine has left, and which projects are using it: one row per project with the kind of expensive work it is running (builds, simulators, test runs, bundlers, automation) and its measured CPU, memory and disk I/O, plus listening ports grouped by the project serving them |
 
 ## Install
 
 ```bash
-scripts/install.sh install              # Memory, Disk, Network, CPU
-scripts/install.sh install Power Dev    # add tabs left out by default
+scripts/install.sh install              # Memory, Disk, Network, CPU, Power
+scripts/install.sh install Dev          # add the tab left out by default
 scripts/install.sh uninstall Power      # remove one; with no names, removes every tab from here
 ```
 
