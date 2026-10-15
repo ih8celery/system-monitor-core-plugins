@@ -78,8 +78,14 @@ struct TCPConnection {
 
 /// How often the Network tab samples.
 enum NetworkSampling {
-    /// nettop alone takes about a second by design, so this stays far from the 1-second feed.
-    static let refreshInterval: TimeInterval = 30
+    /// The router and the internet are pinged this often, shown or hidden: the host calls
+    /// `collect()` at this interval either way.
+    static let pingInterval: TimeInterval = 5
+    /// How long one ping waits for its reply. Two in a row stay inside one ping interval.
+    static let pingTimeout: TimeInterval = 2
+    /// nettop alone takes about a second by design, so it and lsof run this often, and only while
+    /// the tab shows.
+    static let trafficInterval: TimeInterval = 30
 }
 
 /// What one nettop and lsof sample found.

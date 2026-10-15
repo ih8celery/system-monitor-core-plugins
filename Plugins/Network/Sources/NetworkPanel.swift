@@ -36,6 +36,8 @@ struct NetworkPanel: View {
                     Spacer()
                 }
 
+                LatencySection(state: plugin.latency)
+
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 10) {
                         SectionTitle("Speed Test")
