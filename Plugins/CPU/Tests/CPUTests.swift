@@ -22,6 +22,11 @@ enum CPUTests {
         testClustersOnThisMacCoverEveryCore()
         testCollectPublishesTheMachineState()
         testThermalChangesAreReadOnlyWhileShowing()
+        testGPUParserReadsThreeUtilisations()
+        testGPUParserMatchesKeysWithTheirQuotes()
+        testGPUParserRefusesTextWithoutStatistics()
+        testGPUHistoryKeepsTheNewestSamples()
+        testGPUIsSampledEverySecondOnlyWhileShowing()
     }
 
     // A `ps -eo pid,ppid,pcpu,rss,etime,args` sample. Leading fields are
@@ -291,22 +296,79 @@ enum CPUTests {
 
     private static func testThermalChangesAreReadOnlyWhileShowing() {
         let recorder = LogRecorder()
+        // The GPU timer also reads ioreg while showing; this test is about pmset alone.
+        func pmsetReads() -> [String] { recorder.messages.filter { $0 == command } }
         let command = "/usr/bin/pmset -g therm"
         let plugin = CPUPlugin(host: makeHost(runner: recordingRunner(recorder, answers: [command: "CPU Power notify\n\tCPU_Speed_Limit \t= 90\n"])))
         let center = NotificationCenter.default
 
         center.post(name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
         spinRunLoop(for: 0.2)
-        expect(recorder.count == 0, "a thermal change while hidden runs nothing: the window may be closed, got \(recorder.messages)")
+        expect(pmsetReads().isEmpty, "a thermal change while hidden runs nothing: the window may be closed, got \(pmsetReads())")
 
         plugin.visibilityChanged(isVisible: true)
         center.post(name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
-        waitUntil(5) { recorder.count == 1 }
-        expect(recorder.messages == [command], "a thermal change while showing reads pmset once, got \(recorder.messages)")
+        waitUntil(5) { pmsetReads().count == 1 }
+        expect(pmsetReads() == [command], "a thermal change while showing reads pmset once, got \(pmsetReads())")
 
         plugin.visibilityChanged(isVisible: false)
         center.post(name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
         spinRunLoop(for: 0.2)
-        expect(recorder.count == 1, "hiding the tab stops the observer, got \(recorder.messages)")
+        expect(pmsetReads().count == 1, "hiding the tab stops the observer, got \(pmsetReads())")
+    }
+
+    // Captured from `ioreg -r -c AGXAccelerator -d 0` on the development Mac.
+    private static let capturedIoreg = """
+    +-o AGXAcceleratorG15X  <class AGXAcceleratorG15X, id 0x100000a1f, registered, matched, active, busy 0 (0 ms), retain 28>
+      {
+        "IOClass" = "AGXAcceleratorG15X"
+        "PerformanceStatistics" = {"In use system memory (driver)"=0,"Alloc system memory"=13865009152,"Tiler Utilization %"=12,"recoveryCount"=0,"lastRecoveryTime"=0,"Renderer Utilization %"=16,"TiledSceneBytes"=1441792,"Device Utilization %"=34,"SplitSceneCount"=0,"Allocated PB Size"=123731968,"In use system memory"=1082818560}
+      }
+    """
+    private static let ioregCommand = "/usr/sbin/ioreg -r -c AGXAccelerator -d 0"
+
+    private static func testGPUParserReadsThreeUtilisations() {
+        let reading = GPUParser.parse(capturedIoreg)
+        expect(reading == GPUReading(device: 34, renderer: 16, tiler: 12), "device, renderer and tiler come from PerformanceStatistics, got \(String(describing: reading))")
+        let line = GPUReading(device: 34, renderer: 16, tiler: 12).line
+        let want = "Device \(percentString(34)) · Renderer \(percentString(16)) · Tiler \(percentString(12))"
+        expect(line == want && line.hasPrefix("Device ") && line.contains("Renderer ") && line.contains("Tiler "), "the line names all three in the tab's percent style, got \(line)")
+    }
+
+    private static func testGPUParserMatchesKeysWithTheirQuotes() {
+        let text = "\"PerformanceStatistics\" = {\"Device Utilization % (peak)\"=99,\"Device Utilization %\"=7,\"Renderer Utilization %\"=5,\"Tiler Utilization %\"=3}"
+        expect(GPUParser.parse(text) == GPUReading(device: 7, renderer: 5, tiler: 3), "a longer key sharing the prefix is not the key, got \(String(describing: GPUParser.parse(text)))")
+    }
+
+    private static func testGPUParserRefusesTextWithoutStatistics() {
+        expect(GPUParser.parse("") == nil, "empty output is no reading")
+        expect(GPUParser.parse("\"Tiler Utilization %\"=3") == nil, "a missing device figure is no reading, not a zero")
+        expect(GPUParser.parse("\"Device Utilization %\"=banana,\"Renderer Utilization %\"=1,\"Tiler Utilization %\"=1") == nil, "a figure that is not a number is no reading")
+    }
+
+    private static func testGPUHistoryKeepsTheNewestSamples() {
+        let full = Array(repeating: 1.0, count: GPUHistory.capacity)
+        let next = GPUHistory.appending(2, to: full)
+        expect(next.count == GPUHistory.capacity && next.last == 2 && next.first == 1, "a full history drops the oldest and keeps the newest")
+        expect(full.last == 1, "the old array is untouched")
+        expect(GPUHistory.appending(5, to: []) == [5], "the first sample starts the history")
+    }
+
+    private static func testGPUIsSampledEverySecondOnlyWhileShowing() {
+        let recorder = LogRecorder()
+        let plugin = CPUPlugin(host: makeHost(runner: recordingRunner(recorder, answers: [ioregCommand: capturedIoreg])))
+        spinRunLoop(for: 0.3)
+        expect(recorder.count == 0, "a hidden tab does not read the GPU, got \(recorder.messages)")
+
+        plugin.visibilityChanged(isVisible: true)
+        waitUntil(5) { plugin.gpuHistory.count >= 3 }
+        expect(plugin.gpuHistory.count >= 3 && plugin.gpuHistory.allSatisfy { $0 == 34 }, "showing the tab samples about once a second, got \(plugin.gpuHistory)")
+        expect(plugin.gpuReading == GPUReading(device: 34, renderer: 16, tiler: 12), "the latest reading is published, got \(String(describing: plugin.gpuReading))")
+
+        plugin.visibilityChanged(isVisible: false)
+        spinRunLoop(for: 0.2)
+        let stopped = recorder.count
+        spinRunLoop(for: 1.5)
+        expect(recorder.count == stopped, "hiding the tab stops the GPU timer, got \(recorder.count) after \(stopped)")
     }
 }

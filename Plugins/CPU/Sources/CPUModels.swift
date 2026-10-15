@@ -5,6 +5,8 @@ import Foundation
 enum CPUSampling {
     /// Load average, thermal state and `pmset -g therm`, while the tab is showing.
     static let refreshInterval: TimeInterval = 10
+    /// The GPU's own cadence, while the tab is showing.
+    static let gpuInterval: TimeInterval = 1
 }
 
 /// One group of cores that share a design, named as sysctl names it (`hw.perflevelN.name`),
