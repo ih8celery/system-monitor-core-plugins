@@ -27,6 +27,7 @@ enum CPUTests {
         testGPUParserRefusesTextWithoutStatistics()
         testGPUHistoryKeepsTheNewestSamples()
         testGPUIsSampledEverySecondOnlyWhileShowing()
+        testProcessMemoryReadsTheWayActivityMonitorDoes()
     }
 
     // A `ps -eo pid,ppid,pcpu,rss,etime,args` sample. Leading fields are
@@ -370,5 +371,13 @@ enum CPUTests {
         let stopped = recorder.count
         spinRunLoop(for: 1.5)
         expect(recorder.count == stopped, "hiding the tab stops the GPU timer, got \(recorder.count) after \(stopped)")
+    }
+
+    private static func testProcessMemoryReadsTheWayActivityMonitorDoes() {
+        let bytes: UInt64 = 1_500_000_000
+        expect(memoryByteString(bytes).hasPrefix("1.4"), "the SDK's memory style is 1024-based: 1 500 000 000 bytes is 1.4 GB, got \(memoryByteString(bytes))")
+        expect(CPUFormat.processMemory(bytes) == "Memory \(memoryByteString(bytes))", "a list row's memory uses the memory style, got \(CPUFormat.processMemory(bytes))")
+        expect(CPUFormat.drillSummary(memory: bytes, uptime: "2h 5m") == "\(memoryByteString(bytes)) · up 2h 5m", "the drill-in header uses the memory style, got \(CPUFormat.drillSummary(memory: bytes, uptime: "2h 5m"))")
+        expect(CPUFormat.processMemory(bytes) != "Memory \(fileByteString(bytes))", "memory is not worded as a file size")
     }
 }

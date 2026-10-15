@@ -83,7 +83,7 @@ struct CPUPanel: View {
                     title: "Top CPU",
                     rows: cpuRows,
                     value: { percentString(machineCPUPercent($0.cpu)) },
-                    subvalue: { "Memory \(byteString($0.physical))" },
+                    subvalue: { CPUFormat.processMemory($0.physical) },
                     fraction: { row in
                         ProcessCPUScale.barFraction(wholeMachinePercent: machineCPUPercent(row.cpu))
                     },
@@ -235,7 +235,7 @@ struct ProcessDetailRow: View {
                 Label(ancestry, systemImage: "arrow.turn.left.up")
                     .lineLimit(1)
                 Spacer()
-                Text("\(byteString(detail.memory)) · up \(detail.uptime)")
+                Text(CPUFormat.drillSummary(memory: detail.memory, uptime: detail.uptime))
             }
             .font(.caption2)
             .foregroundStyle(.secondary)

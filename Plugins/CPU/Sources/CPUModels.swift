@@ -1,4 +1,5 @@
 import Foundation
+import SystemBarKit
 
 /// The CPU tab's own cadence. The headline, history, per-core and user/system figures come from
 /// the host's 1-second feed; this is how often the tab reads what that feed does not carry.
@@ -98,6 +99,16 @@ enum CPUFormat {
     static func loadLine(_ loads: LoadAverages, coreCount: Int) -> String {
         let figures = [loads.one, loads.five, loads.fifteen].map { String(format: "%.1f", $0) }
         return "load \(figures.joined(separator: " · ")) of \(coreCount) \(coreCount == 1 ? "core" : "cores")"
+    }
+
+    /// A list row's memory figure, in Activity Monitor's 1024-based style.
+    static func processMemory(_ bytes: UInt64) -> String {
+        "Memory \(memoryByteString(bytes))"
+    }
+
+    /// The drill-in header's right-hand side: the process's memory and how long it has run.
+    static func drillSummary(memory: UInt64, uptime: String) -> String {
+        "\(memoryByteString(memory)) · up \(uptime)"
     }
 
     /// The two largest units, whole: "up 3d 4h", "up 4h 12m", "up 12m". A negative interval (the
