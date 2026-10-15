@@ -168,7 +168,7 @@ struct MemoryLegend: View {
     let memory: MemorySnapshot
 
     var body: some View {
-        SegmentedLegend(rows: memoryBarSegments(for: memory))
+        SegmentedLegend(rows: memoryBarSegments(for: memory), format: memoryByteString)
     }
 }
 

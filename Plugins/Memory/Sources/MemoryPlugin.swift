@@ -5,7 +5,7 @@ import SystemBarKit
 
 /// The Memory tab as a bundle. The host calls `collect()` on this plugin's queue every 3 seconds
 /// while the tab shows and every 10 seconds while it is hidden, which keeps the pressure graph full; each collect reads the kernel's memory figures and pressure level (ioreg
-/// only every 30 seconds) and publishes on main. The top-memory list follows the process feed.
+/// only every 30 seconds, and only while showing) and publishes on main. The top-memory list follows the process feed.
 @objc(SystemBarMemoryPlugin)
 public final class MemoryPlugin: NSObject, TabPlugin, ObservableObject {
     public static let identifier = "memory"
@@ -51,6 +51,11 @@ public final class MemoryPlugin: NSObject, TabPlugin, ObservableObject {
             guard let self else { return }
             self.stats = self.stats.recording(reading)
         }
+    }
+
+    /// Main thread: the host showing or hiding the tab. Hidden, the GPU pills' ioreg is not run.
+    @MainActor public func visibilityChanged(isVisible: Bool) {
+        collector.setShowing(isVisible)
     }
 
     @MainActor public func makeView() -> AnyView {
