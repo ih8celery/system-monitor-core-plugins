@@ -2,7 +2,7 @@ import Foundation
 import SystemBarKit
 
 /// Two pmset reads, one ioreg read of the battery driver, and the parsing of them. Pure apart
-/// from `collect(using:)`.
+/// from `collect(using:)` and `readDriver(using:)`.
 enum PowerCollector {
     /// `isSettling` says, from this sample's charger state, whether the charger came or went
     /// too recently for the telemetry to be trusted.
@@ -12,16 +12,16 @@ enum PowerCollector {
         isSettling: (Bool?) -> Bool = { _ in false }
     ) -> PowerSnapshot {
         let battery = host.run(path: "/usr/bin/pmset", arguments: ["-g", "batt"])
-        let driver = host.run(path: ioregPath, arguments: ioregArguments)
+        let driver = readDriver(using: host)
         let assertions = host.run(path: "/usr/bin/pmset", arguments: ["-g", "assertions"])
         let parsedBattery = parseBatteryStatus(battery.output)
-        let driverEntry = driver.status == 0 ? batteryEntry(driver.output) : nil
+        let driverEntry = driver.entry
         let isExternal = driverEntry?["ExternalConnected"] as? Bool
         let settling = isSettling(isExternal)
         let parsedAssertions = assertions.status == 0 ? parseSleepAssertions(assertions.output) : []
         var status: [String] = []
         if battery.status != 0 { status.append("battery unavailable") }
-        if driver.status != 0 { status.append("charge state unavailable") }
+        if !driver.succeeded { status.append("charge state unavailable") }
         if assertions.status != 0 { status.append("assertions unavailable") }
 
         return PowerSnapshot(
@@ -32,13 +32,21 @@ enum PowerCollector {
             batteryDetail: driverEntry.flatMap(batteryDetail(from:)),
             chargeLimit: chargeLimit(fileAt: chargeLimitFile),
             powerDraw: powerDraw(from: driverEntry, sourceJustChanged: settling),
-            hasDriverReading: driver.status == 0,
+            hasDriverReading: driver.succeeded,
             isExternal: isExternal,
             isSettling: settling,
             sleepAssertions: parsedAssertions,
             status: status.isEmpty ? "Power sample OK" : status.joined(separator: ", "),
             health: SampleHealth(isOK: status.isEmpty)
         )
+    }
+
+    /// The battery driver's entry, the one read a hidden sample makes. `succeeded` is false when
+    /// ioreg itself failed; a Mac with no battery succeeds with no entry.
+    static func readDriver(using host: HostServices) -> (entry: [String: Any]?, succeeded: Bool) {
+        let driver = host.run(path: ioregPath, arguments: ioregArguments)
+        guard driver.status == 0 else { return (nil, false) }
+        return (batteryEntry(driver.output), true)
     }
 
     static func contributors(from rows: [ProcessSnapshot]) -> [PowerContributor] {

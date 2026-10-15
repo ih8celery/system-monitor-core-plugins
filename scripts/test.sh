@@ -38,7 +38,7 @@ trap 'rm -rf "$tmp"' EXIT
 jq -n --arg dir "$PWD/build/PlugIns" '{plugins: [$ARGS.positional[] | {path: "\($dir)/\(.).bundle"}]}' \
   --args "${ALL_TABS[@]}" > "$tmp/plugins.json"
 b="$PWD/build/PlugIns"
-expected="ok power Power $b/Power.bundle
+expected="ok power Power $b/Power.bundle background every 10s
 ok dev Dev $b/Dev.bundle
 ok memory Memory $b/Memory.bundle background every 10s
 ok disk Disk $b/Disk.bundle background every 900s
