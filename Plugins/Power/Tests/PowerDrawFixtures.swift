@@ -54,7 +54,8 @@ enum PowerDrawFixtures {
         extraKeys: Power(voltage: 12487, amperage: -158, systemPowerIn: 84810, systemLoad: 87030, batteryPower: -2230).xml
     )
 
-    /// Amperage as some ioreg text prints it: the signed value read as unsigned 64-bit.
+    /// Amperage stored as the signed value's unsigned 64-bit form. `ioreg -a`, which the
+    /// collector reads, prints it signed; reading through `int64Value` is right for either.
     static let onBatteryUnsignedAmperage = PowerFixtures.ioreg(
         external: false, fullyCharged: false, charging: false, capacity: 54, notChargingReason: 128,
         extraKeys: Power(voltage: 11398, amperage: nil, systemPowerIn: 0).xml
