@@ -153,6 +153,10 @@ struct DiskDerivedRows {
 enum DiskSampling {
     /// Volumes and `tmutil` while the tab shows.
     static let refreshInterval: TimeInterval = 30
+    /// The activity graph's `ioreg` read, while the tab shows.
+    static let activityInterval: DispatchTimeInterval = .seconds(1)
+    /// `ioreg` answers in about 20 ms; this only stops a stuck one from holding the queue.
+    static let activityTimeout: TimeInterval = 5
     /// The host's `collect()` while the tab is hidden: a due check, and the scans it starts.
     static let backgroundInterval: TimeInterval = 900
     /// One `du` per row. Generous, because `~/Library` alone takes a minute warm and far longer

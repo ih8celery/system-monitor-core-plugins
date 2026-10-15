@@ -55,6 +55,8 @@ struct DiskPanel: View {
                 }
             }
 
+            activitySection
+
             if let boot = snapshot.boot {
                 SegmentedBar(segments: capacityRows(for: boot).filter { $0.value > 0 }, total: boot.total)
                     .frame(height: 34)
@@ -87,6 +89,36 @@ struct DiskPanel: View {
             Text(snapshot.status)
                 .font(.caption)
                 .foregroundStyle(snapshot.health == .ok ? .secondary : Palette.warning)
+        }
+    }
+
+    // MARK: - Activity
+
+    private var activitySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                RateCard(title: "Read", value: rateString(plugin.activity.currentReadRate), color: Palette.blue)
+                RateCard(title: "Write", value: rateString(plugin.activity.currentWriteRate), color: Palette.tangerine)
+            }
+            if let problem = plugin.activity.problem {
+                Text(problem)
+                    .font(.caption)
+                    .foregroundStyle(Palette.warning)
+            } else {
+                HStack(spacing: 12) {
+                    LegendLabel(text: "Read", color: Palette.blue)
+                    LegendLabel(text: "Write", color: Palette.tangerine)
+                    Spacer()
+                    ChartUnitLabel("B/s - last 2 min")
+                }
+                DualSparkline(
+                    first: plugin.activity.readRates,
+                    second: plugin.activity.writeRates,
+                    firstColor: Palette.blue,
+                    secondColor: Palette.tangerine
+                )
+                .frame(height: 64)
+            }
         }
     }
 
