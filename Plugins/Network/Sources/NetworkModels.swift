@@ -10,6 +10,14 @@ struct NetworkProcessSnapshot: Identifiable {
     let totalUploaded: UInt64
 
     var combinedRate: Double { downloadRate + uploadRate }
+
+    /// What nettop's first block counts: bytes since each process started, added up over the
+    /// processes that share a name.
+    static let totalsHelp = "Received and sent since each app started, by nettop's count; an app with several processes adds them up"
+
+    var totalsText: String {
+        "\(fileByteString(totalDownloaded)) in, \(fileByteString(totalUploaded)) out"
+    }
 }
 
 struct NetworkDestination: Identifiable {
