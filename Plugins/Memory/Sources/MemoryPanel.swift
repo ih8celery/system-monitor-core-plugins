@@ -8,7 +8,7 @@ struct MemoryPanel: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("\(byteString(plugin.stats.memory.available)) Available")
+                Text("\(memoryByteString(plugin.stats.memory.available)) Available")
                     .font(.system(size: 38, weight: .bold, design: .rounded))
                     .foregroundStyle(memoryColor)
                     .lineLimit(1)
@@ -47,8 +47,8 @@ struct MemoryPanel: View {
                     .help("How hard the GPU's compute units were working at the last 30-second check. It is not a memory figure.")
 
                     HStack(spacing: 10) {
-                        StatPill(label: "GPU memory in use", value: byteString(plugin.stats.gpu.inUseMemory))
-                        StatPill(label: "GPU memory allocated", value: byteString(plugin.stats.gpu.allocatedMemory))
+                        StatPill(label: "GPU memory in use", value: memoryByteString(plugin.stats.gpu.inUseMemory))
+                        StatPill(label: "GPU memory allocated", value: memoryByteString(plugin.stats.gpu.allocatedMemory))
                     }
                     .help("What the GPU driver is using now, and what it has set aside. The allocation is wired RAM that no process in the list owns, so it is part of the gap between used memory and the processes shown.")
                 }
@@ -78,7 +78,7 @@ struct MemoryPanel: View {
             ProcessList(
                 title: "Top Memory",
                 rows: plugin.processes.topMemory,
-                value: { byteString($0.physical) },
+                value: { memoryByteString($0.physical) },
                 subvalue: { "\($0.count)x  \(percentString(machineCPUPercent($0.cpu))) CPU" },
                 fraction: { row in
                     Double(row.physical) / Double(plugin.processes.maxPhysical)

@@ -42,5 +42,5 @@ struct SwapHistory {
 /// "Swapping X out, Y in", or nil when nothing moved in the window so the line stays hidden.
 func swapActivityText(_ activity: SwapActivity) -> String? {
     guard !activity.isIdle else { return nil }
-    return "Swapping \(byteString(activity.bytesOut)) out, \(byteString(activity.bytesIn)) in"
+    return "Swapping \(memoryByteString(activity.bytesOut)) out, \(memoryByteString(activity.bytesIn)) in"
 }
