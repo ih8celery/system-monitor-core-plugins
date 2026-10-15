@@ -19,13 +19,23 @@ extension PowerCollector {
     /// called the limit.
     static let chargeLimitReason = 0x0100_0000
 
-    /// Reads `ioreg -r -n AppleSmartBattery -a`. Nil when there is no battery (ioreg prints
-    /// nothing) or the reading cannot be understood, so the panel asserts nothing.
-    static func parseChargeState(_ output: String) -> ChargeState? {
+    /// The battery's entry in `ioreg -r -n AppleSmartBattery -a`. Nil when there is no battery
+    /// (ioreg prints nothing) or the output cannot be read.
+    static func batteryEntry(_ output: String) -> [String: Any]? {
         guard let data = output.data(using: .utf8),
-              let entries = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [[String: Any]],
-              let battery = entries.first,
-              let isExternal = battery["ExternalConnected"] as? Bool,
+              let entries = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [[String: Any]]
+        else { return nil }
+        return entries.first
+    }
+
+    /// Nil when there is no battery or the reading cannot be understood, so the panel asserts
+    /// nothing.
+    static func parseChargeState(_ output: String) -> ChargeState? {
+        batteryEntry(output).flatMap(chargeState(from:))
+    }
+
+    static func chargeState(from battery: [String: Any]) -> ChargeState? {
+        guard let isExternal = battery["ExternalConnected"] as? Bool,
               let isCharging = battery["IsCharging"] as? Bool,
               let isFull = battery["FullyCharged"] as? Bool
         else { return nil }
