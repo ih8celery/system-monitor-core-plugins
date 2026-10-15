@@ -182,11 +182,9 @@ struct ProjectLoadRow: View {
     private var detailText: String {
         switch row.load {
         case .measured(_, let memory, let readRate, let writeRate, let sampled, let total):
-            let io = "\(rateString(readRate)) read, \(rateString(writeRate)) write"
-            guard sampled == total else {
-                return "\(byteString(memory)) - \(io) - \(sampled) of \(total) processes sampled"
-            }
-            return "\(byteString(memory)) - \(io)"
+            return ProjectLoadText.measuredDetail(
+                memory: memory, readRate: readRate, writeRate: writeRate, sampled: sampled, total: total
+            )
         case .unavailable:
             // Two different reasons, and the reader deserves the right one.
             guard row.categories.contains(where: { !$0.category.isMeasurable }) else {

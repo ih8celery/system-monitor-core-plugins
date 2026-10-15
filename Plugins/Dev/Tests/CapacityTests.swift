@@ -19,6 +19,7 @@ enum CapacityTests {
         testProjectRowsReportUnavailableRatherThanZero()
         testProjectRowsOrderHeaviestFirstWithUnattributedLast()
         testCapacityGradeBands()
+        testProjectDetailUsesMemoryUnitsForMemoryAndFileUnitsForDiskRates()
         testCategorizedProcessesFromTheProcessTable()
         testBusyFilterUsesMeasuredCPUNotLifetimeAverage()
         testUnmeasurableWorkStillCountsAsLoad()
@@ -626,5 +627,15 @@ enum CapacityTests {
         expect(assess(temperature: 90).availableCapacity == .low, "the 90C safety ceiling is low")
         expect(assess(cpu: nil).availableCapacity == .high, "an unavailable cpu reading must not invent stress")
         expect(assess(cpu: 80).stress == .high, "low available capacity is reported as high machine stress")
+    }
+
+    private static func testProjectDetailUsesMemoryUnitsForMemoryAndFileUnitsForDiskRates() {
+        let memory: UInt64 = 1_500_000_000
+        let rate = 1_500_000.0
+        let all = ProjectLoadText.measuredDetail(memory: memory, readRate: rate, writeRate: 0, sampled: 4, total: 4)
+        expect(all == "\(memoryByteString(memory)) - \(fileRateString(rate)) read, \(fileRateString(0)) write", "memory takes the memory style, disk rates the file style, got \(all)")
+        expect(memoryByteString(memory) != fileByteString(memory), "the two styles disagree at 1.5 GB, so this test can tell them apart")
+        let partial = ProjectLoadText.measuredDetail(memory: memory, readRate: rate, writeRate: 0, sampled: 3, total: 4)
+        expect(partial == all + " - 3 of 4 processes sampled", "a partial sample says so after the figures, got \(partial)")
     }
 }
