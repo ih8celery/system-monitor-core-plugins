@@ -10,7 +10,7 @@ SystemBar's plugin folder like any other.
 | Tab | What it shows |
 |---|---|
 | **CPU** | Total load, process count, a 90-second history graph, and the top processes by CPU with their memory |
-| **Memory** | Used and available the way Activity Monitor counts them, the kernel's pressure level, the wired/active/inactive/compressed/free/other breakdown (it adds up to the machine's memory), swap and, while it is moving, how much was swapped in and out in the last minute, a graph of the last 15 minutes of memory used coloured by pressure (filled in the background, so it is full when you open the tab), how busy the GPU is and how much memory it holds, and top processes by memory |
+| **Memory** | Used and available the way Activity Monitor counts them, the kernel's pressure level, the wired/active/inactive/compressed/free/other breakdown (it adds up to the machine's memory), swap and, while it is moving, how much was swapped in and out in the last minute, a graph of the last 15 minutes of memory used coloured by pressure (filled in the background, so it is full when you open the tab), how much memory the GPU holds (how busy it is lives on the CPU tab), and top processes by memory |
 | **Disk** | Free and used space per volume, Time Machine local snapshots, a map of which folders hold the space, and what grew or shrank over the last day or week, measured by scans that run in the background and saved between launches, every number stamped with its age, and a read/write speed graph of the internal disk for the last two minutes (drawn only while the tab is open). The headline is free space as Finder shows it (`volumeAvailableCapacityForImportantUsageKey`, which counts purgeable space as available), with "of which X purgeable" underneath; the capacity bar splits Used, Purgeable and Free, and the folder map below it still counts purgeable space as used, because it is on the disk |
 | **Network** | Live up/down bandwidth, which processes are talking and where to, latency, and an on-demand speed test |
 | **Power** (not installed by default) | Battery and power source, and the sleep assertions keeping your Mac awake with their likely causes |
@@ -60,7 +60,7 @@ Alongside direct kernel calls (`host_statistics`, `sysctl`, and friends) for CPU
 | Command | Used for | How often |
 |---|---|---|
 | `/bin/ps` | Process list, per-process CPU and memory | Every 10s while the Power, Memory or CPU tab is showing; also every 60s for the Dev tab, with arguments, to work out which project each process belongs to |
-| `/usr/sbin/ioreg` | GPU (`AGXAccelerator`) info | Every 30s |
+| `/usr/sbin/ioreg` | How much system memory the GPU driver (`AGXAccelerator`) is using and has set aside, for the Memory tab's GPU memory figures | Every 30s |
 | `/usr/bin/pmset` | Battery state and sleep assertions; thermal and performance warnings; the thermal speed limit | Every 60s for the Power and Dev tabs; every 10s while the CPU tab is showing |
 | `/usr/bin/nettop` | Per-process network throughput | Every 30s |
 | `/usr/sbin/lsof` | Active TCP connections; listening ports for the Dev tab; working directories of running build/test/bundler processes, to name the project each belongs to | Every 30–60s |
