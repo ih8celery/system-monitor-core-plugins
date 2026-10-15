@@ -21,10 +21,11 @@ enum PowerFixtures {
 
     /// The captured shape, with the readings the collector looks at filled in. The battery-detail
     /// readings default to the captured ones; a nil leaves that key out, as ioreg would.
+    /// `extraKeys` is more of the entry's XML, for the power-draw fixtures.
     static func ioreg(
         external: Bool, fullyCharged: Bool, charging: Bool, capacity: Int, notChargingReason: Int,
         rawMaxCapacity: Int? = 6262, designCapacity: Int? = 6249, cycleCount: Int? = 24,
-        temperature: Int? = 3069, timeRemaining: Int? = 65535
+        temperature: Int? = 3069, timeRemaining: Int? = 65535, extraKeys: String = ""
     ) -> String {
         let detail = [
             ("AppleRawMaxCapacity", rawMaxCapacity), ("CycleCount", cycleCount), ("DesignCapacity", designCapacity),
@@ -38,7 +39,7 @@ enum PowerFixtures {
         <plist version="1.0">
         <array>
         \t<dict>
-        \(detail)\t\t<key>ChargerData</key>
+        \(detail)\(extraKeys)\t\t<key>ChargerData</key>
         \t\t<dict>
         \t\t\t<key>NotChargingReason</key>
         \t\t\t<integer>\(notChargingReason)</integer>
