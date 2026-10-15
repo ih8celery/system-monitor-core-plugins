@@ -10,7 +10,8 @@ final class NetworkCollector: @unchecked Sendable {
     /// Reads a process's executable path, for the names nettop gives as a version or cut short.
     private let executablePath: @Sendable (Int32) -> String?
     private let dnsQueue = DispatchQueue(label: "systembar.network.dns", qos: .utility)
-    private var hostnameCache: [String: HostnameCacheEntry] = [:]
+    /// Capped like the summary's names, oldest out first.
+    private var hostnameCache = BoundedCache<String, HostnameCacheEntry>()
     private var hostnameLookupsInFlight = Set<String>()
 
     init(host: HostServices, executablePath: @escaping @Sendable (Int32) -> String? = { ProcessPath.executable(pid: $0) }) {
@@ -61,7 +62,7 @@ final class NetworkCollector: @unchecked Sendable {
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.hostnameLookupsInFlight.remove(normalized)
-                    self.hostnameCache[normalized] = HostnameCacheEntry(hostname: hostname, cachedAt: Date())
+                    self.hostnameCache = self.hostnameCache.setting(HostnameCacheEntry(hostname: hostname, cachedAt: Date()), for: normalized)
                     resolved(normalized, hostname)
                 }
             }
@@ -70,8 +71,9 @@ final class NetworkCollector: @unchecked Sendable {
 
     /// Failed lookups (empty hostname) are a negative cache: DNS or network
     /// conditions can change, so a transient miss shouldn't pin a destination
-    /// to its raw IP forever. Successful lookups don't expire — hostnames
-    /// rarely change and re-querying them buys nothing.
+    /// to its raw IP forever. Successful lookups don't expire with time — hostnames
+    /// rarely change and re-querying them buys nothing — but the cache's cap drops
+    /// the oldest once it holds 512.
     static let negativeHostnameCacheTTL: TimeInterval = 60
 
     static func isHostnameCacheEntryValid(_ entry: HostnameCacheEntry, now: Date, ttl: TimeInterval) -> Bool {

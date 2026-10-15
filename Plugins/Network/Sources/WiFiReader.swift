@@ -2,7 +2,8 @@ import CoreWLAN
 import Foundation
 
 /// Reads the Wi-Fi link from CoreWLAN. Nil when the Mac has no Wi-Fi interface, or it is off or
-/// not joined to a network, so the card hides on Ethernet.
+/// not joined to a network, so the card hides then; a Mac on Ethernet with Wi-Fi also joined
+/// still shows it.
 enum WiFiReader {
     static func current() -> WiFiSignal? {
         guard let interface = CWWiFiClient.shared().interface(), interface.powerOn() else { return nil }

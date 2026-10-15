@@ -14,6 +14,7 @@ enum NetworkLatencyTests {
         testReplyIsReadWithOrWithoutAnIPHeader()
         testDefaultGatewayFromTheRoutingTable()
         testPingAddressSetting()
+        testPingAddressRejectsAddressesThatAreNotAHost()
         testProbeRecordsRepliesAndFailures()
         testNoRouterStillPingsTheInternet()
         testNoRouterAndNoIPv4RouteIsUnknown()
@@ -25,6 +26,8 @@ enum NetworkLatencyTests {
         testHistoryKeepsTheLastFiveMinutes()
         testDiagnosisNamesTheLikelyFault()
         testLatencyText()
+        testRouterFigureSaysNoRouterWhenOnlyTheRouterIsMissing()
+        testGraphPlacesPingsByTimeAndBreaksAtAGap()
         testRealPingOfLoopbackGetsAReply()
         testRealPingGivesUpAtItsTimeout()
         testPluginPingsEveryCollectButSamplesTrafficOnlyWhileShown()
@@ -122,10 +125,26 @@ enum NetworkLatencyTests {
         expect(absent.address == "1.1.1.1" && absent.problem == nil, "no setting pings 1.1.1.1")
         let chosen = LatencySettings.internetAddress(PluginSettings(values: ["pingAddress": .string("9.9.9.9")]))
         expect(chosen.address == "9.9.9.9" && chosen.problem == nil, "an IPv4 address is used as given")
+        let lan = LatencySettings.internetAddress(PluginSettings(values: ["pingAddress": .string("192.168.1.10")]))
+        expect(lan.address == "192.168.1.10" && lan.problem == nil, "a private address is a real host, so it is allowed")
         for bad: PluginSettings.Value in [.string("one.one.one.one"), .string("2606:4700::1111"), .string("1.1.1"), .number(1), .bool(true)] {
             let result = LatencySettings.internetAddress(PluginSettings(values: ["pingAddress": bad]))
             expect(result.address == "1.1.1.1", "\(bad) keeps the default, got \(result.address)")
-            expect(result.problem == "settings: \"pingAddress\" must be an IPv4 address such as 1.1.1.1; pinging 1.1.1.1", "and says so, got \(String(describing: result.problem))")
+            expect(result.problem == LatencySettings.problem, "and says so, got \(String(describing: result.problem))")
+        }
+        expect(LatencySettings.problem.hasPrefix("settings: \"pingAddress\" must be an IPv4 address such as 1.1.1.1"), "got \(LatencySettings.problem)")
+    }
+
+    /// Addresses no host on the internet answers from: a broadcast times out every round, so a
+    /// typo would become an "Internet unreachable" notification.
+    private static func testPingAddressRejectsAddressesThatAreNotAHost() {
+        for text in ["0.0.0.0", "0.1.2.3", "127.0.0.1", "127.8.8.8", "224.0.0.1", "239.255.255.250", "240.0.0.1", "255.255.255.255"] {
+            let result = LatencySettings.internetAddress(PluginSettings(values: ["pingAddress": .string(text)]))
+            expect(result.address == "1.1.1.1" && result.problem == LatencySettings.problem, "\(text) keeps the default and says so, got \(result)")
+        }
+        for text in ["1.0.0.1", "126.255.255.255", "128.0.0.1", "223.255.255.254"] {
+            let result = LatencySettings.internetAddress(PluginSettings(values: ["pingAddress": .string(text)]))
+            expect(result.address == text && result.problem == nil, "\(text) is a host address, got \(result)")
         }
     }
 
@@ -166,7 +185,7 @@ enum NetworkLatencyTests {
     private static func testNoRouterAndATimeoutIsAFailure() {
         let sample = LatencyProbe.measure(router: nil, internet: "1.1.1.1", at: Date()) { _, _ in .timeout }
         expect(sample.router == .unknown && sample.internet == .failed("timed out"), "a ping that was sent and lost is a failure, got \(sample)")
-        expect(LatencyHistory().appending(sample).diagnosis == .localNetwork, "and with no router answering, points at the local network")
+        expect(LatencyHistory().appending(sample).diagnosis == .noRouter, "and with no router ever pinged, says so rather than that it did not answer")
     }
 
     /// With a router, a send the kernel refuses is a failure like any other.
@@ -212,7 +231,9 @@ enum NetworkLatencyTests {
         let local = LatencyHistory().appending(sample(0, router: .failed("timed out"), internet: .failed("timed out")))
         expect(local.diagnosis == .localNetwork, "both failing points at the Wi-Fi or local network")
         let noRouter = LatencyHistory().appending(sample(0, router: .unknown, internet: .failed("No route to host")))
-        expect(noRouter.diagnosis == .localNetwork, "no router and no internet is the local network too")
+        expect(noRouter.diagnosis == .noRouter, "no router found is not a router that failed to answer")
+        expect(noRouter.diagnosis?.text.hasPrefix("No router found and the internet does not answer") == true, "got \(String(describing: noRouter.diagnosis?.text))")
+        expect(local.diagnosis?.text.hasPrefix("Neither the router nor the internet answers") == true, "a router that was pinged and failed keeps its wording")
         expect(LatencyHistory().diagnosis == nil, "no sample, nothing to say")
     }
 
@@ -258,6 +279,34 @@ enum NetworkLatencyTests {
     private static func testLatencyText() {
         expect(latencyText(.reply(3.24)) == "3.2 ms" && latencyText(.reply(18.4)) == "18 ms", "under 10 ms keeps a decimal")
         expect(latencyText(.failed("timed out")) == "failed" && latencyText(.unknown) == "no route" && latencyText(nil) == "-- ms", "and the rest say what happened")
+    }
+
+    /// After a sleep, the pings before it sit where their time puts them, not next to the ones
+    /// after, and the line does not join across the gap.
+    private static func testGraphPlacesPingsByTimeAndBreaksAtAGap() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        func at(_ seconds: TimeInterval) -> LatencySample { LatencySample(at: start.addingTimeInterval(seconds), router: .reply(2), internet: .reply(20)) }
+        let steady = (0..<LatencyHistory.capacity).map { at(TimeInterval($0) * NetworkSampling.pingInterval) }
+        let steadySlots = LatencyGraph.slots(for: steady)
+        expect(steadySlots.first??.fraction == 0 && steadySlots.last??.fraction == 1, "a full history spans the graph, got \(String(describing: steadySlots.first)) \(String(describing: steadySlots.last))")
+        expect(steadySlots.allSatisfy { $0?.breaksBefore == false }, "and is one unbroken line")
+
+        let slept = [at(0), at(5), at(200), at(205)]
+        let slots = LatencyGraph.slots(for: slept)
+        expect(slots.compactMap { $0?.breaksBefore } == [false, false, true, false], "the line breaks at the sleep, got \(slots)")
+        expect(abs((slots[1]?.fraction ?? 0) - (1 - 200 / LatencyGraph.window)) < 1e-9, "a ping before the sleep sits by its time, got \(String(describing: slots[1]))")
+        expect(LatencyGraph.slots(for: [at(0), at(600)]).first! == nil, "a ping older than the window is off the graph")
+        expect(LatencyGraph.slots(for: []).isEmpty, "no pings, no slots")
+    }
+
+    /// No router found while the internet was pinged (a full-tunnel VPN) is not "no route".
+    private static func testRouterFigureSaysNoRouterWhenOnlyTheRouterIsMissing() {
+        let at = Date()
+        expect(routerLatencyText(LatencySample(at: at, router: .unknown, internet: .reply(20))) == "no router", "the internet answering with no router found")
+        expect(routerLatencyText(LatencySample(at: at, router: .unknown, internet: .failed("timed out"))) == "no router", "or failing")
+        expect(routerLatencyText(LatencySample(at: at, router: .unknown, internet: .unknown)) == "no route", "with nothing routable, both say no route")
+        expect(routerLatencyText(LatencySample(at: at, router: .reply(3.24), internet: .reply(20))) == "3.2 ms", "a router reply reads as before")
+        expect(routerLatencyText(nil) == "-- ms", "no round yet")
     }
 
     // MARK: - The real socket

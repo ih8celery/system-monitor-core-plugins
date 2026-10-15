@@ -56,28 +56,33 @@ struct NetworkRuleSettings: Equatable {
 }
 
 /// "Internet unreachable": the internet ping failed so many rounds in a row. A round with no
-/// IPv4 route sent nothing, so it breaks the run rather than extending it. Fires on reaching the
-/// count, once per run of failures.
+/// IPv4 route sent nothing, so it breaks the run rather than extending it, and so does a gap
+/// longer than `NetworkSampling.maximumRoundGap`, such as a sleep. Fires on reaching the count,
+/// once per run of failures.
 struct UnreachableRule {
     static let notificationID = "network.internet-unreachable"
 
     /// Nil when the rule is off.
     let pings: Int?
     private let failuresInARow: Int
+    private let lastRound: Date?
 
     init(pings: Int?) {
-        self.init(pings: pings, failuresInARow: 0)
+        self.init(pings: pings, failuresInARow: 0, lastRound: nil)
     }
 
-    private init(pings: Int?, failuresInARow: Int) {
+    private init(pings: Int?, failuresInARow: Int, lastRound: Date?) {
         self.pings = pings
         self.failuresInARow = failuresInARow
+        self.lastRound = lastRound
     }
 
     func checking(_ sample: LatencySample, internetAddress: String) -> (rule: UnreachableRule, notification: PluginNotification?) {
         guard let pings else { return (self, nil) }
-        let count = sample.internet.isFailure ? failuresInARow + 1 : 0
-        let next = UnreachableRule(pings: pings, failuresInARow: count)
+        let isContinuing = lastRound.map { sample.at.timeIntervalSince($0) <= NetworkSampling.maximumRoundGap } ?? false
+        let before = isContinuing ? failuresInARow : 0
+        let count = sample.internet.isFailure ? before + 1 : 0
+        let next = UnreachableRule(pings: pings, failuresInARow: count, lastRound: sample.at)
         guard count == pings else { return (next, nil) }
         let cause = sample.diagnosis.map { " \($0.text)." } ?? ""
         let failures = pings == 1 ? "A ping to \(internetAddress) failed." : "\(pings) pings in a row to \(internetAddress) failed."

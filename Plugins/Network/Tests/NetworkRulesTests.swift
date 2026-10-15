@@ -12,12 +12,14 @@ enum NetworkRulesTests {
         testSettingsKeepTheDefaultForABadValueAndSaySo()
         testUnreachableFiresOnceAtTheNthFailure()
         testUnreachableIgnoresNoRouteRounds()
+        testUnreachableStartsAgainAfterASleep()
         testUnreachableCanBeTurnedOff()
         testSlowInternetFiresOnceTheWindowIsFull()
         testSlowInternetFiresAgainOnlyAfterRecovering()
         testSlowInternetIgnoresFailuresAndCanBeTurnedOff()
         testPluginPostsWhileHidden()
         testPluginPostsNothingWhenThereIsNoRoute()
+        testPluginSaysNoRouterFoundWhenThereIsNone()
         testPluginReportsBadRuleSettings()
     }
 
@@ -106,6 +108,17 @@ enum NetworkRulesTests {
         expect(broken.isEmpty, "and they break a run of failures rather than extend it, got \(broken)")
     }
 
+    /// Two failures before the lid closed and one after waking are not three in a row.
+    private static func testUnreachableStartsAgainAfterASleep() {
+        let asleep = 120
+        let woke = posted([round(0, internet: failed), round(1, internet: failed), round(1 + asleep, internet: failed)])
+        expect(woke.isEmpty, "a gap of many rounds ends the run, got \(woke.map(\.id))")
+        let after = posted([round(0, internet: failed), round(1, internet: failed)] + (0..<3).map { round(1 + asleep + $0, internet: failed) })
+        expect(after.map(\.id) == ["network.internet-unreachable"], "three in a row after waking still fire, got \(after.map(\.id))")
+        let late = posted((0..<3).map { round($0 * 2, internet: failed) })
+        expect(late.map(\.id) == ["network.internet-unreachable"], "a round or two late is still in a row, got \(late.map(\.id))")
+    }
+
     private static func testUnreachableCanBeTurnedOff() {
         var off = NetworkRuleSettings()
         off.notifyUnreachable = false
@@ -185,6 +198,16 @@ enum NetworkRulesTests {
         let plugin = NetworkPlugin(host: host, probes: probes(gateway: nil) { _, _ in .noRoute("Network is unreachable") })
         for _ in 0..<5 { plugin.collect() }
         expect(posted().isEmpty, "no IPv4 route is not an outage, got \(posted())")
+    }
+
+    /// A full-tunnel VPN: no router found, the internet pinged and failing. The router was never
+    /// pinged, so the notification must not say it failed to answer.
+    private static func testPluginSaysNoRouterFoundWhenThereIsNone() {
+        let (host, posted) = notifyingHost()
+        let plugin = NetworkPlugin(host: host, probes: probes(gateway: nil) { _, _ in .timeout })
+        for _ in 0..<3 { plugin.collect() }
+        expect(posted().first?.body.contains(LatencyDiagnosis.noRouter.text) == true, "got \(String(describing: posted().first?.body))")
+        expect(posted().first?.body.contains("Neither the router") == false, "not that the router failed")
     }
 
     private static func testPluginReportsBadRuleSettings() {

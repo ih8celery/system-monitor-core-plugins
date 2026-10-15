@@ -28,6 +28,15 @@ func speedTestLatencyText(_ milliseconds: Double?) -> String {
     return String(format: milliseconds >= 10 ? "%.0f ms" : "%.1f ms", max(0, milliseconds))
 }
 
+/// The router's latest figure. With no router found while the internet was still pinged (a
+/// full-tunnel VPN routes without one), "no router" rather than the "no route" of a round that
+/// could send nothing at all.
+func routerLatencyText(_ sample: LatencySample?) -> String {
+    guard let sample else { return latencyText(nil) }
+    if sample.router == .unknown && sample.internet != .unknown { return "no router" }
+    return latencyText(sample.router)
+}
+
 /// The latency section's latest figure for one line.
 func latencyText(_ point: LatencyPoint?) -> String {
     switch point {
