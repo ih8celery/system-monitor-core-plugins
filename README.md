@@ -13,7 +13,7 @@ SystemBar's plugin folder like any other.
 | **Memory** | Used and available the way Activity Monitor counts them, the kernel's pressure level, the wired/active/inactive/compressed/free/other breakdown (it adds up to the machine's memory), swap and, while it is moving, how much was swapped in and out in the last minute, a graph of the last 15 minutes of memory used coloured by pressure (filled in the background, so it is full when you open the tab), optional notifications for rising pressure and heavy swapping (see Memory notifications below), how much memory the GPU holds (how busy it is lives on the CPU tab), and top processes by memory |
 | **Disk** | Free and used space per volume, Time Machine local snapshots, a map of which folders hold the space, and what grew or shrank over the last day or week, measured by scans that run in the background and saved between launches, every number stamped with its age, and a read/write speed graph of the internal disk for the last two minutes (the tab reads the counters itself, in process, every second while it shows and every 5 s while hidden, so the graph is already full when you open it). The headline is free space as Finder shows it (`volumeAvailableCapacityForImportantUsageKey`, which counts purgeable space as available), with "of which X purgeable" underneath; the capacity bar splits Used, Purgeable and Free, and the folder map below it still counts purgeable space as used, because it is on the disk |
 | **Network** | Live up/down bandwidth with the totals received and sent since the Mac started up, the Wi-Fi signal with a good/fair/poor verdict (hidden when Wi-Fi is off or not joined to a network), latency to the router and to the internet with failed pings marked in red, which processes are talking and where to, and an on-demand speed test |
-| **Power** (not installed by default) | Battery and power source, and the sleep assertions keeping your Mac awake with their likely causes, and a graph of the Mac's power draw over the last hour or day (filled in the background and saved between launches, with gaps where the Mac slept or SystemBar was closed) |
+| **Power** (not installed by default) | Battery and power source, the sleep assertions keeping your Mac awake with their likely causes, a graph of the Mac's power draw over the last hour or day (filled in the background and saved between launches, with gaps where the Mac slept or SystemBar was closed), and optional notifications for a low battery and for a charger that is not charging (see Power notifications below) |
 | **Dev** (not installed by default) | How much capacity the machine has left, and which projects are using it: one row per project with the kind of expensive work it is running (builds, simulators, test runs, bundlers, automation) and its measured CPU, memory and disk I/O, plus listening ports grouped by the project serving them |
 
 ## Install
@@ -61,6 +61,18 @@ The Network tab posts a macOS notification when the internet stops answering its
 | `slowInternetMinutes` | How long that average must hold, in minutes, 1 to 60 | `5` |
 
 A value of the wrong kind or outside its range keeps the default, is named under the tab's latency graph, and is written to SystemBar's log.
+
+## Power notifications
+
+The Power tab posts a macOS notification when the battery drops below a level while the Mac runs on it (once on crossing below, and again only after the battery has climbed 5 points above the level or the charger has been plugged in), and when the Mac is plugged in but not charging while the battery is more than 5 points under the charge limit (100% when no limit is set) for 2 minutes (once, and again only after it charges, is unplugged or reaches that point). The not-charging wait never counts the 90 seconds after the charger comes or goes, while the battery's figures catch up, and a gap such as sleep restarts it, so the brief pauses macOS makes do not fire it; the notification gives the battery driver's `NotChargingReason` when it is not zero. Both rules read the battery driver every 10 seconds with the window closed, so they work while it is. A Mac with no battery never gets either. SystemBar keeps one notification per rule per hour. Both rules are on by default; set these in the tab's `settings` in `plugins.json`:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `notifyBatteryLow` | `false` turns off the battery-low notification | `true` |
+| `batteryLowPercent` | The battery level, in percent, below which it counts as low; a whole number from 1 to 99 | `20` |
+| `notifyNotCharging` | `false` turns off the plugged-in-but-not-charging notification | `true` |
+
+A value of the wrong kind or outside its range keeps the default, is named at the foot of the tab, and is written to SystemBar's log.
 
 ## Develop
 
@@ -114,7 +126,7 @@ Each interval lives in that tab's plugin, next to the code that uses it. The Pow
 
 | Tab | Its own sampling | While hidden | Where the number lives |
 |---|---|---|---|
-| Power | `pmset` and `ioreg` every 60s | `ioreg` alone every 10s, for the Mac's draw; one-minute averages of the last 24 h are saved in `~/Library/Application Support/SystemBar/PluginData/power/power-history.json`, so the draw graph is full on open and after a relaunch | `PowerPlugin.refreshInterval` and `PowerPlugin.hiddenInterval` |
+| Power | `pmset` and `ioreg` every 60s | `ioreg` alone every 10s, for the Mac's draw and the notification rules; one-minute averages of the last 24 h are saved in `~/Library/Application Support/SystemBar/PluginData/power/power-history.json`, so the draw graph is full on open and after a relaunch | `PowerPlugin.refreshInterval` and `PowerPlugin.hiddenInterval` |
 | Dev | `ps`, `lsof`, `pmset` and two usage reads a second apart, every 60s | — | `DevSampling` in `Plugins/Dev/Sources/CapacityModels.swift` |
 | Memory | Kernel counters and pressure level every 3s; `ioreg` every 30s, only while the tab shows; a graph point about every 10s | A kernel read every 10s, so the pressure graph is full on open | `MemorySampling` in `Plugins/Memory/Sources/MemoryModels.swift` |
 | Disk | Volumes and `tmutil` every 30s; the read/write graph's counters read in process through IOKit (no subprocess) every second; the overview scan every 3 h and the developer and simulator scans every 6 h, each folder one `du` capped at 5 min and each plan at 15 min | A call every 15 min that runs the low-space check and, unless `"backgroundScans": false`, whatever scans are due; the activity graph is the tab's own timer, not the host's call, reading the counters every 5 s so it is full on open | `DiskSampling` in `Plugins/Disk/Sources/DiskModels.swift` |
