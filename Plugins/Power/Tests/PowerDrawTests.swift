@@ -7,6 +7,7 @@ enum PowerDrawTests {
     static func runAll() {
         testACIdleShowsChargerInputAndAnIdleBattery()
         testACChargingTakesTheBatteryShareOff()
+        testACIgnoresTheTelemetrysBatteryAndLoadFigures()
         testOnBatteryTheMacIsTheBatteryDraw()
         testJustUnpluggedNeverShowsChargerInput()
         testJustPluggedInWaitsForTheTelemetry()
@@ -39,6 +40,13 @@ enum PowerDrawTests {
         let reading = draw(PowerDrawFixtures.acCharging)
         expect(near(reading?.batteryWatts, 24.6), "12.3 V x 2 A into the battery is +24.6 W, got \(String(describing: reading?.batteryWatts))")
         expect(near(reading?.macWatts, 45.4), "70 W in less 24.6 W charging leaves the Mac 45.4 W, got \(String(describing: reading?.macWatts))")
+    }
+
+    /// The telemetry's BatteryPower and SystemLoad may not move the figures.
+    private static func testACIgnoresTheTelemetrysBatteryAndLoadFigures() {
+        let reading = draw(PowerDrawFixtures.acCharging)
+        let otherTelemetry = draw(PowerDrawFixtures.acChargingWith(systemLoad: 1000, batteryPower: 99000))
+        expect(otherTelemetry == reading, "changing BatteryPower and SystemLoad changes nothing, got \(String(describing: otherTelemetry))")
     }
 
     /// The probe: telemetry said -12.1 W while the battery was giving 48.4 W.

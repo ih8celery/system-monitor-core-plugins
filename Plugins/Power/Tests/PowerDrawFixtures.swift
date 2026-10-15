@@ -35,10 +35,14 @@ enum PowerDrawFixtures {
 
     /// On the charger and charging. Not captured: the Mac was on battery when this was written.
     /// The captured AC shape with the battery taking 2 A at 12.3 V (24.6 W) out of 70 W in.
-    static let acCharging = PowerFixtures.ioreg(
-        external: true, fullyCharged: false, charging: true, capacity: 54, notChargingReason: 0,
-        extraKeys: Power(voltage: 12300, amperage: 2000, adapterWatts: 94, systemPowerIn: 70000, systemLoad: 70000, batteryPower: -24600).xml
-    )
+    static let acCharging = acChargingWith(systemLoad: 70000, batteryPower: -24600)
+
+    static func acChargingWith(systemLoad: Int, batteryPower: Int) -> String {
+        PowerFixtures.ioreg(
+            external: true, fullyCharged: false, charging: true, capacity: 54, notChargingReason: 0,
+            extraKeys: Power(voltage: 12300, amperage: 2000, adapterWatts: 94, systemPowerIn: 70000, systemLoad: systemLoad, batteryPower: batteryPower).xml
+        )
+    }
 
     /// Unplugged and settled, 20:37: the telemetry reads -12.1 W while the battery gives 48.4 W.
     static let onBattery = PowerFixtures.ioreg(
