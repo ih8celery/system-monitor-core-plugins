@@ -59,13 +59,13 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     /// cleared on `scanQueue`, so it sits behind a lock rather than on one queue.
     private let forcedRunLock = NSLock()
     private var isForcedRunQueued = false
-    /// The free-space rule and what it last saw. `collect()` is the only caller, one at a time,
-    /// but the lock keeps that from being an unwritten assumption.
     /// `backgroundScans` from settings, and whether the tab shows now (set by the host on main,
     /// read on the plugin's queue, so behind a lock). A hidden call scans only when allowed.
     private let scanGateLock = NSLock()
     private let scansWhileHidden: Bool
     private var isShowing = false
+    /// The free-space rule and what it last saw. `collect()` is the only caller, one at a time,
+    /// but the lock keeps that from being an unwritten assumption.
     private let lowSpaceLock = NSLock()
     private var lowSpaceRule: DiskLowSpaceRule
 
