@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "system_monitor_core_plugins",
+  "project_id": "87c5ac6d-f5d2-408d-bee6-e99454bc3f1f"
+}
