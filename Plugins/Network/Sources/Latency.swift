@@ -45,6 +45,13 @@ struct LatencySample: Equatable, Sendable {
     let at: Date
     let router: LatencyPoint
     let internet: LatencyPoint
+
+    /// Only a failing internet needs explaining: a router that answers puts the fault past it,
+    /// and one that does not (or cannot be found) puts it on this side of it.
+    var diagnosis: LatencyDiagnosis? {
+        guard internet.isFailure else { return nil }
+        return router.milliseconds == nil ? .localNetwork : .internet
+    }
 }
 
 /// What the latest sample suggests is at fault, when something is.
@@ -78,25 +85,21 @@ struct LatencyHistory: Equatable {
         latest.map { $0.router == .unknown && $0.internet == .unknown } ?? false
     }
 
-    /// Only a failing internet needs explaining: a router that answers puts the fault past it,
-    /// and one that does not (or cannot be found) puts it on this side of it.
-    var diagnosis: LatencyDiagnosis? {
-        guard let latest, latest.internet.isFailure else { return nil }
-        return latest.router.milliseconds == nil ? .localNetwork : .internet
-    }
+    var diagnosis: LatencyDiagnosis? { latest?.diagnosis }
 }
 
 /// The latency line as the panel shows it.
 struct LatencyState {
     var history = LatencyHistory()
     let internetAddress: String
-    let settingsProblem: String?
+    /// Each setting that was wrong and the default kept in its place: `pingAddress` and the rules'.
+    let settingsProblems: [String]
 
-    /// What the panel says under the graph: a settings problem and what the latest round
-    /// suggests, each in its own line, so one never hides the other.
+    /// What the panel says under the graph: each settings problem and what the latest round
+    /// suggests, each in its own line, so one never hides another.
     var notes: [String] {
         let round = history.hasNoRoute ? LatencyHistory.noRouteNote : history.diagnosis?.text
-        return [settingsProblem, round].compactMap { $0 }
+        return settingsProblems + [round].compactMap { $0 }
     }
 
     func recording(_ sample: LatencySample) -> LatencyState {

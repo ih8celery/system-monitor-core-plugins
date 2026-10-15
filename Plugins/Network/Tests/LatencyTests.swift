@@ -151,7 +151,7 @@ enum NetworkLatencyTests {
         }
         expect(asked.messages == ["1.1.1.1"], "with no router the internet is still pinged, got \(asked.messages)")
         expect(sample.router == .unknown && sample.internet == .reply(20), "and answers, with the router a gap, got \(sample)")
-        expect(LatencyState(internetAddress: "1.1.1.1", settingsProblem: nil).recording(sample).notes.isEmpty, "no note when the internet answers")
+        expect(LatencyState(internetAddress: "1.1.1.1", settingsProblems: []).recording(sample).notes.isEmpty, "no note when the internet answers")
     }
 
     /// An IPv6-only network, or none at all: the kernel refuses the send at once for want of an
@@ -160,7 +160,7 @@ enum NetworkLatencyTests {
         let sample = LatencyProbe.measure(router: nil, internet: "1.1.1.1", at: Date()) { _, _ in .noRoute("Network is unreachable") }
         expect(sample.router == .unknown && sample.internet == .unknown, "a send the kernel cannot route is unknown, not failed, got \(sample)")
         expect(LatencyHistory().appending(sample).diagnosis == nil, "no false alarm about the Wi-Fi or local network")
-        expect(LatencyState(internetAddress: "1.1.1.1", settingsProblem: nil).recording(sample).notes == [LatencyHistory.noRouteNote], "the tab says why there is no line")
+        expect(LatencyState(internetAddress: "1.1.1.1", settingsProblems: []).recording(sample).notes == [LatencyHistory.noRouteNote], "the tab says why there is no line")
     }
 
     private static func testNoRouterAndATimeoutIsAFailure() {
@@ -218,9 +218,9 @@ enum NetworkLatencyTests {
 
     private static func testNotesShowTheSettingProblemAndTheDiagnosis() {
         let failing = LatencySample(at: Date(), router: .reply(2), internet: .failed("timed out"))
-        let state = LatencyState(internetAddress: "1.1.1.1", settingsProblem: "settings problem").recording(failing)
+        let state = LatencyState(internetAddress: "1.1.1.1", settingsProblems: ["settings problem"]).recording(failing)
         expect(state.notes == ["settings problem", LatencyDiagnosis.internet.text], "a settings typo does not hide the diagnosis, got \(state.notes)")
-        expect(LatencyState(internetAddress: "1.1.1.1", settingsProblem: nil).notes.isEmpty, "nothing to say, no notes")
+        expect(LatencyState(internetAddress: "1.1.1.1", settingsProblems: []).notes.isEmpty, "nothing to say, no notes")
     }
 
     /// What a router sends back when it cannot deliver our echo: type 3, then the IPv4 header and
@@ -334,7 +334,7 @@ enum NetworkLatencyTests {
         let host = makeHost(settings: PluginSettings(values: ["pingAddress": .string("cloudflare")]))
         let plugin = NetworkPlugin(host: host, probes: .fake())
         expect(plugin.latency.internetAddress == "1.1.1.1", "a bad setting pings the default")
-        expect(plugin.latency.settingsProblem?.contains("pingAddress") == true, "and the tab says what is wrong, got \(String(describing: plugin.latency.settingsProblem))")
+        expect(plugin.latency.settingsProblems.contains { $0.contains("pingAddress") }, "and the tab says what is wrong, got \(plugin.latency.settingsProblems)")
     }
 }
 
