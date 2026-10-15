@@ -28,6 +28,8 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     static let backgroundScansKey = "backgroundScans"
 
     @Published private(set) var snapshot = DiskSnapshot()
+    /// The read/write graph; written on main, from readings taken on `activityQueue`.
+    @Published private(set) var activity = DiskActivityHistory()
 
     private let host: HostServices
     private let collector: DiskCollector
@@ -36,6 +38,11 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     private let plans: [DiskScanPlan]
     private let now: () -> Date
     private let scanQueue = DispatchQueue(label: "systembar.disk.scan", qos: .utility)
+    /// The activity graph's `ioreg` reads, one at a time, apart from the scans. Only the timer
+    /// and `sampleActivity` use it.
+    private let activityQueue = DispatchQueue(label: "systembar.disk.activity", qos: .utility)
+    /// Runs once a second while the tab shows. Touched only on main.
+    private var activityTimer: DispatchSourceTimer?
     /// Touched only on `scanQueue`.
     private var ledger = DiskLedger()
     private var isLedgerLoaded = false
@@ -196,6 +203,38 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     private func publishRows(from ledger: DiskLedger) {
         let derived = DiskDerivedRows.derive(from: ledger, homeDirectory: host.homeDirectory, now: now())
         publish { $0.applying(derived) }
+    }
+
+    /// The activity graph moves every second, but only while the tab shows: nothing reads
+    /// `ioreg` while it is hidden, and the first reading after it shows again is the new baseline.
+    @MainActor public func visibilityChanged(isVisible: Bool) {
+        activityTimer?.cancel()
+        activityTimer = nil
+        guard isVisible else { return }
+        let timer = DispatchSource.makeTimerSource(queue: activityQueue)
+        timer.schedule(deadline: .now(), repeating: DiskSampling.activityInterval)
+        timer.setEventHandler { [weak self] in self?.readActivity(at: Date()) }
+        timer.resume()
+        activityTimer = timer
+    }
+
+    /// One `ioreg` read, queued behind any other, published on main. A read that gives no
+    /// counters keeps the graph and says why.
+    func sampleActivity(at date: Date) {
+        activityQueue.async { [self] in readActivity(at: date) }
+    }
+
+    private func readActivity(at date: Date) {
+        let output = host.run(path: DiskActivity.ioregPath, arguments: DiskActivity.ioregArguments, timeout: DiskSampling.activityTimeout)
+        let counters = output.status == 0 ? DiskActivity.parseCounters(output.output) : nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let counters {
+                self.activity = self.activity.applying(counters, at: date)
+            } else {
+                self.activity = self.activity.failing(DiskActivity.unavailableProblem)
+            }
+        }
     }
 
     @MainActor public func makeView() -> AnyView {
