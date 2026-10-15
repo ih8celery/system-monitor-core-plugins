@@ -47,17 +47,57 @@ struct CPURuleSettings: Equatable {
     }
 }
 
-/// Fires once when CPU has stayed at or above the threshold for the whole window, then stays quiet
-/// until CPU drops below the threshold and the condition builds up again.
+/// Fires when CPU's average over the whole window reaches the threshold, once per episode.
+///
+/// An average, not "every reading above": a real build dips for a second or two between jobs, and
+/// CPU is capped at 100%, so a short burst cannot lift a mostly idle window over the line. Each
+/// reading describes the interval since the one before it. A gap between readings longer than
+/// `maximumGap` (the popover closed and the feed stopped, so the next reading averages the whole
+/// closed interval) throws the history away rather than counting it as time spent busy.
 struct SustainedCPUTracker: Equatable {
-    private(set) var aboveSince: Date?
-    private(set) var hasFired = false
+    /// The widest spacing still treated as continuous; the host's feed is one second.
+    static let maximumGap: TimeInterval = 5
 
-    func observing(percent: Double, at now: Date, threshold: Double, window: TimeInterval) -> (tracker: SustainedCPUTracker, shouldFire: Bool) {
-        guard percent >= threshold else { return (SustainedCPUTracker(), false) }
-        let since = aboveSince ?? now
-        let isDue = !hasFired && now.timeIntervalSince(since) >= window
-        return (SustainedCPUTracker(aboveSince: since, hasFired: hasFired || isDue), isDue)
+    struct Reading: Equatable {
+        let time: Date
+        let percent: Double
+    }
+
+    private(set) var readings: [Reading] = []
+    /// Whether the condition held at the last reading, so firing happens on the step into it.
+    private(set) var isMet = false
+
+    /// `mean` is the window's average when the rule fires.
+    func observing(percent: Double, at now: Date, threshold: Double, window: TimeInterval)
+        -> (tracker: SustainedCPUTracker, shouldFire: Bool, mean: Double?) {
+        var kept = readings
+        if let last = kept.last, now.timeIntervalSince(last.time) > Self.maximumGap || now < last.time {
+            kept = []
+        }
+        kept.append(Reading(time: now, percent: percent))
+
+        // Keep one reading at or before the window's start (the anchor, which says how long the
+        // first in-window reading's interval was) and everything after it.
+        let windowStart = now.addingTimeInterval(-window)
+        while kept.count > 1, kept[1].time <= windowStart { kept.removeFirst() }
+
+        let mean = Self.mean(of: kept, from: windowStart, window: window)
+        let isMetNow = mean.map { $0 >= threshold } ?? false
+        let next = SustainedCPUTracker(readings: kept, isMet: isMetNow)
+        return (next, isMetNow && !isMet, mean)
+    }
+
+    /// The time-weighted average over the window, or nil until readings cover all of it.
+    private static func mean(of readings: [Reading], from windowStart: Date, window: TimeInterval) -> Double? {
+        guard let anchor = readings.first, anchor.time <= windowStart else { return nil }
+        var previous = anchor.time
+        var weighted = 0.0
+        for reading in readings.dropFirst() {
+            let from = max(previous, windowStart)
+            weighted += reading.percent * reading.time.timeIntervalSince(from)
+            previous = reading.time
+        }
+        return weighted / window
     }
 }
 
@@ -101,17 +141,17 @@ final class CPURuleEngine: @unchecked Sendable {
     func observeCPU(percent: Double, at now: Date) {
         guard settings.isCPUAlertOn else { return }
         let window = TimeInterval(settings.cpuMinutes * 60)
-        let shouldFire = lock.withLock { () -> Bool in
+        let fired = lock.withLock { () -> Double? in
             let step = cpuTracker.observing(percent: percent, at: now, threshold: settings.cpuPercent, window: window)
             cpuTracker = step.tracker
-            return step.shouldFire
+            return step.shouldFire ? step.mean : nil
         }
-        guard shouldFire else { return }
+        guard let mean = fired else { return }
         let minutes = settings.cpuMinutes
         host.notify(
             id: Self.cpuRuleID,
             title: "CPU has been busy",
-            body: "CPU has stayed at \(percentString(settings.cpuPercent)) or more for \(minutes) \(minutes == 1 ? "minute" : "minutes"); it is at \(percentString(percent)) now."
+            body: "CPU averaged \(percentString(mean)) over the last \(minutes == 1 ? "minute" : "\(minutes) minutes")."
         )
     }
 

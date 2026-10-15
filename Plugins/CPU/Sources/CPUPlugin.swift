@@ -77,9 +77,11 @@ public final class CPUPlugin: NSObject, TabPlugin, ObservableObject {
         gpuTimer?.cancel()
     }
 
-    /// The rules run whether or not the tab is showing: the CPU rule rides the host's always-on
-    /// 1-second feed, and this observer is an event (no sampling, no subprocess), so a hidden tab
-    /// can still tell you the Mac turned hot.
+    /// The thermal rule works whether or not the window is open: this observer is an event (no
+    /// sampling, no subprocess). The CPU rule rides the host's 1-second feed, which today stops when
+    /// the popover closes, so that rule works only while the window is open until SystemBar's feed
+    /// runs in the background (host issue swift-ui-system-monitor-125.6, H4). The tab does not work
+    /// around that; `SustainedCPUTracker` treats the pause as a gap and starts its window again.
     private func observeRuleThermalChanges() {
         ruleThermalObserver = NotificationCenter.default.addObserver(
             forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: nil

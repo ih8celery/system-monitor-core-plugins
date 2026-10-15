@@ -10,7 +10,10 @@ enum CPURulesTests {
         testSettingsAcceptValidValues()
         testSettingsRejectBadValuesAndSaySo()
         testSustainedCPUFiresOnceAfterTheWindow()
-        testADipBelowTheThresholdRestartsTheClock()
+        testShortDipsInARealLoadStillFire()
+        testABriefSpikeInAnIdleWindowDoesNotFire()
+        testAGapInTheReadingsRestartsTheWindow()
+        testTheWindowNeedsTheWholeSpanBeforeItCanFire()
         testTheThresholdItselfCounts()
         testTheCPURuleFiresAgainAfterRecovering()
         testNotificationIdsAreStableAndFiguresLiveInTheBody()
@@ -68,62 +71,82 @@ enum CPURulesTests {
         }
     }
 
+    /// One reading a second from `from` up to and including `to` seconds after `start`, the way the
+    /// host's feed delivers them; `percent` answers for each second.
+    private static func feed(_ engine: CPURuleEngine, from: Int, to: Int, _ percent: (Int) -> Double) {
+        for second in from...to { engine.observeCPU(percent: percent(second), at: start.addingTimeInterval(Double(second))) }
+    }
+
     private static func testSustainedCPUFiresOnceAfterTheWindow() {
         let (engine, posted, _) = engine()
-        engine.observeCPU(percent: 95, at: start)
-        engine.observeCPU(percent: 95, at: start.addingTimeInterval(299))
-        expect(posted().isEmpty, "four minutes and 59 seconds is not five minutes, got \(posted())")
-        engine.observeCPU(percent: 95, at: start.addingTimeInterval(300))
-        expect(posted().count == 1, "five sustained minutes fires, got \(posted().count)")
-        engine.observeCPU(percent: 99, at: start.addingTimeInterval(400))
-        engine.observeCPU(percent: 99, at: start.addingTimeInterval(4_000))
+        feed(engine, from: 0, to: 299) { _ in 95 }
+        expect(posted().isEmpty, "four minutes and 59 seconds of readings do not cover five minutes, got \(posted())")
+        feed(engine, from: 300, to: 300) { _ in 95 }
+        expect(posted().count == 1, "five minutes of 95% fires, got \(posted().count)")
+        feed(engine, from: 301, to: 4_000) { _ in 99 }
         expect(posted().count == 1, "staying above does not fire again, got \(posted().count)")
     }
 
-    private static func testADipBelowTheThresholdRestartsTheClock() {
+    private static func testShortDipsInARealLoadStillFire() {
+        // A build: 92-100% with a second or two at 75% between jobs. The mean is well over 90.
         let (engine, posted, _) = engine()
-        engine.observeCPU(percent: 95, at: start)
-        engine.observeCPU(percent: 50, at: start.addingTimeInterval(200))
-        engine.observeCPU(percent: 95, at: start.addingTimeInterval(250))
-        engine.observeCPU(percent: 95, at: start.addingTimeInterval(500))
-        expect(posted().isEmpty, "250 seconds since the dip is not five minutes, got \(posted())")
-        engine.observeCPU(percent: 95, at: start.addingTimeInterval(550))
-        expect(posted().count == 1, "five minutes after the dip fires, got \(posted().count)")
+        feed(engine, from: 0, to: 300) { second in second % 10 == 9 ? 75 : (second % 2 == 0 ? 100 : 92) }
+        expect(posted().count == 1, "a heavy load with brief dips to 75% fires, got \(posted().count)")
+        expect(posted().first?.body.contains("averaged") == true, "the body says what was measured, got \(String(describing: posted().first?.body))")
+    }
+
+    private static func testABriefSpikeInAnIdleWindowDoesNotFire() {
+        let (engine, posted, _) = engine()
+        feed(engine, from: 0, to: 300) { second in (100...129).contains(second) ? 100 : 5 }
+        expect(posted().isEmpty, "a 30 second spike to 100% in five idle minutes averages about 15%, got \(posted())")
+    }
+
+    private static func testAGapInTheReadingsRestartsTheWindow() {
+        // The popover closed: the feed stopped, and its first reading afterwards describes the
+        // whole closed interval, so none of it can count towards "stayed high".
+        let (engine, posted, _) = engine(["cpuAlertMinutes": .number(1)])
+        feed(engine, from: 0, to: 40) { _ in 95 }
+        feed(engine, from: 600, to: 630) { _ in 95 }
+        expect(posted().isEmpty, "30 seconds after a long gap is not a minute, got \(posted())")
+        feed(engine, from: 631, to: 660) { _ in 95 }
+        expect(posted().count == 1, "a full minute of readings after the gap fires, got \(posted().count)")
+    }
+
+    private static func testTheWindowNeedsTheWholeSpanBeforeItCanFire() {
+        let (engine, posted, _) = engine(["cpuAlertMinutes": .number(1)])
+        engine.observeCPU(percent: 100, at: start)
+        engine.observeCPU(percent: 100, at: start.addingTimeInterval(3))
+        expect(posted().isEmpty, "three seconds at 100% is not a minute, got \(posted())")
     }
 
     private static func testTheThresholdItselfCounts() {
         let (engine, posted, _) = engine(["cpuAlertPercent": .number(80), "cpuAlertMinutes": .number(1)])
-        engine.observeCPU(percent: 80, at: start)
-        engine.observeCPU(percent: 80, at: start.addingTimeInterval(60))
-        expect(posted().count == 1, "CPU at exactly the threshold counts as above it, got \(posted().count)")
+        feed(engine, from: 0, to: 60) { _ in 80 }
+        expect(posted().count == 1, "an average at exactly the threshold counts as above it, got \(posted().count)")
     }
 
     private static func testTheCPURuleFiresAgainAfterRecovering() {
         let (engine, posted, _) = engine(["cpuAlertMinutes": .number(1)])
-        engine.observeCPU(percent: 95, at: start)
-        engine.observeCPU(percent: 95, at: start.addingTimeInterval(60))
-        engine.observeCPU(percent: 10, at: start.addingTimeInterval(120))
-        engine.observeCPU(percent: 95, at: start.addingTimeInterval(180))
-        engine.observeCPU(percent: 95, at: start.addingTimeInterval(240))
+        feed(engine, from: 0, to: 60) { _ in 95 }
+        feed(engine, from: 61, to: 180) { _ in 10 }
+        feed(engine, from: 181, to: 260) { _ in 95 }
         expect(posted().count == 2, "a second episode fires again (the host limits how often it is shown), got \(posted().count)")
     }
 
     private static func testNotificationIdsAreStableAndFiguresLiveInTheBody() {
         let (engine, posted, _) = engine(["cpuAlertMinutes": .number(1)])
-        for episode in 0..<2 {
-            let base = start.addingTimeInterval(Double(episode) * 1_000)
-            engine.observeCPU(percent: 90 + Double(episode) * 5, at: base)
-            engine.observeCPU(percent: 90 + Double(episode) * 5, at: base.addingTimeInterval(60))
-            engine.observeCPU(percent: 0, at: base.addingTimeInterval(100))
-        }
+        feed(engine, from: 0, to: 60) { _ in 96 }
+        feed(engine, from: 61, to: 200) { _ in 0 }
+        feed(engine, from: 1_000, to: 1_060) { _ in 99 }
         engine.observeThermal(.serious)
         engine.observeThermal(.nominal)
         engine.observeThermal(.critical)
         let all = posted()
         expect(all.filter { $0.id == CPURuleEngine.cpuRuleID }.count == 2 && all.filter { $0.id == CPURuleEngine.thermalRuleID }.count == 2, "each rule keeps one id however often it fires, got \(all.map(\.id))")
         expect(CPURuleEngine.cpuRuleID != CPURuleEngine.thermalRuleID, "the two rules have different ids")
-        expect(all.first?.body.contains("90") == true && all.first?.body.contains("1 minute") == true, "the body says the reading and the window, got \(String(describing: all.first?.body))")
-        expect(all.allSatisfy { !$0.id.contains("90") && !$0.id.contains("95") }, "no reading is in an id, got \(all.map(\.id))")
+        let first = all.first?.body ?? ""
+        expect(first.contains("96") && first.contains("last minute"), "the body says the average and the window, got \(first)")
+        expect(all.allSatisfy { !$0.id.contains("96") && !$0.id.contains("99") }, "no reading is in an id, got \(all.map(\.id))")
     }
 
     private static func testThermalFiresOnCrossingIntoSeriousOrWorse() {
@@ -170,12 +193,15 @@ enum CPURulesTests {
             notify: notify
         )
         let plugin = CPUPlugin(host: host, now: { clock.value })
-        send(snapshot)
-        spinRunLoop(for: 0.2) // the feed delivers on the main queue; let the first reading land at `start`
-        clock.value = start.addingTimeInterval(61)
-        send(snapshot)
+        // Readings five seconds apart, the widest gap the rule treats as continuous. The feed
+        // delivers on the main queue, so each one is let land before the clock moves.
+        for step in 0...13 {
+            clock.value = start.addingTimeInterval(Double(step) * 5)
+            send(snapshot)
+            spinRunLoop(for: 0.05)
+        }
         waitUntil(2) { posted().count == 1 }
-        expect(posted().count == 1 && posted().first?.id == CPURuleEngine.cpuRuleID, "a minute of 95% on the 1-second feed fires the rule, got \(posted())")
+        expect(posted().count == 1 && posted().first?.id == CPURuleEngine.cpuRuleID, "a minute of 95% on the feed fires the rule, got \(posted())")
         _ = plugin
     }
 }
