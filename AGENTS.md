@@ -1,7 +1,9 @@
 # Project Instructions for AI Agents
 
 The SystemBar tabs (Power, Dev, Memory, Disk, Network, CPU), moved out of
-`~/proj/swift-ui-system-monitor` with their history. Issues are tracked in that repo's Beads.
+`~/proj/swift-ui-system-monitor` with their history. Tab work is tracked in this repo's Beads;
+work on the app or the SDK is tracked in that repo's Beads, and an issue here that waits on one
+there names it in its description.
 
 - `scripts/test.sh` is the check: every tab's tests in one process, every tab loaded by the
   installed app's loader, then the installer against a temporary folder. `SYSTEMBAR_APP` points it
