@@ -11,13 +11,21 @@ struct DiskLowSpaceRule {
     static let defaultLimitBytes: UInt64 = 10_000_000_000
     /// Beyond any disk, and small enough that the byte count cannot overflow.
     static let maximumGigabytes = 1_000_000.0
+    /// How far above the limit free space must climb to count as recovered: 10% of the limit, but
+    /// at least 1 GB.
+    static func recoveryBand(forLimit limit: UInt64) -> UInt64 {
+        max(1_000_000_000, limit / 10)
+    }
+
     /// The host keys its cooldown and cap on this, so it never holds a reading or a time.
     static let notificationID = "disk.low-space"
 
     /// Nil when the rule is off.
     let limitBytes: UInt64?
-    /// Whether the last reading was below the limit; nil before the first, so a Mac that is
-    /// already low when the tab starts is told once.
+    /// Whether the rule is in its condition: set by a reading below the limit, cleared only by free
+    /// space above the limit plus `recoveryBand`, so a disk hovering at the limit is one crossing,
+    /// not one per wobble. Nil before the first reading, so a Mac that is already low when the tab
+    /// starts is told once.
     private let wasLow: Bool?
 
     init(limitBytes: UInt64?) {
@@ -45,7 +53,9 @@ struct DiskLowSpaceRule {
     func checking(_ volume: DiskVolume?) -> (rule: DiskLowSpaceRule, notification: PluginNotification?) {
         guard let limitBytes, let volume else { return (self, nil) }
         let isLow = volume.finderFree < limitBytes
-        let next = DiskLowSpaceRule(limitBytes: limitBytes, wasLow: isLow)
+        let hasRecovered = volume.finderFree >= limitBytes &+ Self.recoveryBand(forLimit: limitBytes)
+        let nowLow = isLow || (wasLow == true && !hasRecovered)
+        let next = DiskLowSpaceRule(limitBytes: limitBytes, wasLow: nowLow)
         guard isLow, wasLow != true else { return (next, nil) }
         let body = "\(volume.name) has \(fileByteString(volume.finderFree)) free, below your \(fileByteString(limitBytes)) limit"
         return (next, PluginNotification(id: Self.notificationID, title: "Low disk space", body: body))

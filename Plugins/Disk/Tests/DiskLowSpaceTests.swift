@@ -12,6 +12,8 @@ enum DiskLowSpaceTests {
         testAWrongLimitKeepsTheDefaultAndSaysSo()
         testTheRuleFiresOnCrossingNotWhileItStaysTrue()
         testTheRuleRearmsAfterRecovering()
+        testAFreeSpaceHoveringAtTheLimitFiresOnce()
+        testTheBandIsTenPercentOfALargeLimit()
         testAFirstReadingBelowTheLimitFires()
         testNoVolumeReadingChangesNothing()
         testAnOffRuleNeverFires()
@@ -64,6 +66,8 @@ enum DiskLowSpaceTests {
         expect(posted.count == 1, "one notification for the crossing, none while it stays below, got \(posted.count)")
     }
 
+    /// Re-arming needs free space above the limit plus a band, max(1 GB, 10% of the limit), so a
+    /// disk hovering at the limit does not fire on every wobble across it.
     private static func testTheRuleRearmsAfterRecovering() {
         var rule = DiskLowSpaceRule(limitBytes: 10 * gigabyte)
         var count = 0
@@ -72,8 +76,29 @@ enum DiskLowSpaceTests {
             rule = step.rule
             if step.notification != nil { count += 1 }
         }
-        expect(count == 3, "each fresh crossing fires again (the host's cooldown limits how often it is shown), got \(count)")
+        expect(count == 3, "each fresh crossing after a real recovery fires again (the host's cooldown limits how often it is shown), got \(count)")
         expect(rule.checking(volume(freeGB: 10)).notification == nil, "exactly at the limit is not below it")
+    }
+
+    private static func testAFreeSpaceHoveringAtTheLimitFiresOnce() {
+        var rule = DiskLowSpaceRule(limitBytes: 10 * gigabyte)
+        var count = 0
+        // 10 GB limit: the band is max(1 GB, 1 GB) = 1 GB, so 10.5 and 10.9 are not a recovery.
+        for tenths in [95, 105, 95, 109, 95, 105, 95] as [UInt64] {
+            let step = rule.checking(DiskVolume(name: "Macintosh HD", path: "/", total: 500 * gigabyte, free: tenths * gigabyte / 10, isRoot: true))
+            rule = step.rule
+            if step.notification != nil { count += 1 }
+        }
+        expect(count == 1, "wobbling across the limit without recovering past the band fires once, got \(count)")
+        let recovered = rule.checking(volume(freeGB: 11)).rule
+        expect(recovered.checking(volume(freeGB: 9)).notification != nil, "11 GB is past the band, so the next drop fires")
+    }
+
+    private static func testTheBandIsTenPercentOfALargeLimit() {
+        // A 100 GB limit has a 10 GB band: 105 GB is not a recovery, 110 GB is.
+        let low = DiskLowSpaceRule(limitBytes: 100 * gigabyte).checking(volume(freeGB: 90)).rule
+        expect(low.checking(volume(freeGB: 105)).rule.checking(volume(freeGB: 90)).notification == nil, "105 GB is inside the band")
+        expect(low.checking(volume(freeGB: 110)).rule.checking(volume(freeGB: 90)).notification != nil, "110 GB clears it")
     }
 
     private static func testAFirstReadingBelowTheLimitFires() {
