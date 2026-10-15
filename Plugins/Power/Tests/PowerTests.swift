@@ -22,6 +22,7 @@ enum PowerTests {
         testCollectReadsAMacOnBatteryAsDischarging()
         testContributorsFollowTheProcessFeed()
         testPluginIdentityMatchesTheOldTab()
+        PowerBatteryDetailTests.runAll()
     }
 
     private static func testBatteryParsing() {
