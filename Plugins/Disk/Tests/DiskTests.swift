@@ -13,6 +13,7 @@ enum DiskTests {
         testPurgeableNoteIsAbsentWhenNothingIsPurgeable()
         testTheRootVolumeReportsBothCapacities()
         testVolumeTextUsesAppleSizes()
+        testLegendsAgreeWithTheHeaderUnits()
         testLocalSnapshotParsing()
         testSnapshotCountRunsTmutilThroughTheHost()
         testSnapshotAppliesAReadingAndALedger()
@@ -91,6 +92,18 @@ enum DiskTests {
         expect(volume.purgeableNote == "of which 234.6 MB purgeable", "got \(String(describing: volume.purgeableNote))")
         expect(volume.freeText == "1.2 GB free", "got \(volume.freeText)")
         expect(volume.usageDetail == "8.8 GB used of 10.0 GB", "got \(volume.usageDetail)")
+    }
+
+    /// The legends under the bars are drawn by the SDK with the format the panel hands them. With
+    /// the binary default the header said 709.7 GB used while the capacity legend said 661.0 GB.
+    private static func testLegendsAgreeWithTheHeaderUnits() {
+        let volume = DiskVolume(name: "Macintosh HD", path: "/", total: 994_600_000_000, free: 246_400_000_000, purgeable: 38_500_000_000, isRoot: true)
+        let rows = capacityRows(for: volume)
+        let legend = Dictionary(uniqueKeysWithValues: rows.map { ($0.label, DiskPanel.sizeFormat($0.value)) })
+        expect(legend["Used"] == fileByteString(volume.finderUsed), "the Used legend is the Used pill's number, got \(String(describing: legend["Used"]))")
+        expect(legend["Used"] == "709.7 GB", "decimal, as the header writes it, got \(String(describing: legend["Used"]))")
+        expect(legend["Purgeable"] == "38.5 GB" && legend["Free"] == "246.4 GB", "got \(legend)")
+        expect(DiskPanel.sizeFormat(1_234_567_890) == "1.2 GB", "not the binary 1.15 GB")
     }
 
     private static func testLocalSnapshotParsing() {
