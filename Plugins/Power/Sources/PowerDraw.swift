@@ -13,7 +13,8 @@ struct PowerDraw: Equatable {
 
 extension PowerCollector {
     /// Nil when the entry is missing or holds none of the figures. `sourceJustChanged` is true
-    /// for the first sample after a plug or unplug, while `PowerTelemetryData` still lags.
+    /// within `SourceChangeTracker.lagWindow` of a plug or unplug, while `PowerTelemetryData`
+    /// still lags.
     static func powerDraw(from battery: [String: Any]?, sourceJustChanged: Bool) -> PowerDraw? {
         guard let battery else { return nil }
         let isExternal = battery["ExternalConnected"] as? Bool ?? false

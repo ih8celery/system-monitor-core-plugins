@@ -15,6 +15,9 @@ enum PowerDrawTests {
         testNoEntryMeansNoFigures()
         testLabels()
         testCollectTracksTheSourceBetweenSamples()
+        testHoursOnTheChargerAreNotAFreshPlugIn()
+        testReopeningWithinTheLagStillWaits()
+        testTrackerOnlyTrustsAChangeItCanTime()
     }
 
     private static func draw(_ output: String, sourceJustChanged: Bool = false) -> PowerDraw? {
@@ -85,17 +88,58 @@ enum PowerDrawTests {
         expect(chargerLabel(94) == "94 W rated", "the charger is its rating, not a measurement")
     }
 
-    private static func testCollectTracksTheSourceBetweenSamples() {
-        let ioreg = LockedText(PowerDrawFixtures.onBattery)
+    /// A plugin whose ioreg answer and clock the test sets between samples.
+    private static func samplingPlugin(_ start: String) -> (PowerPlugin, LockedText, LockedDate) {
+        let ioreg = LockedText(start)
+        let clock = LockedDate(Date(timeIntervalSince1970: 1_800_000_000))
         let host = makeHost { path, _, _, _ in
             CommandOutput(output: path == PowerCollector.ioregPath ? ioreg.value : "", error: "", status: 0, didTimeout: false)
         }
-        let plugin = PowerPlugin(host: host)
-        let first = plugin.sample()
-        expect(near(first.powerDraw?.macWatts, 48.396), "the first sample has no change to wait out")
+        return (PowerPlugin(host: host, clock: { clock.value }), ioreg, clock)
+    }
+
+    private static func testCollectTracksTheSourceBetweenSamples() {
+        let (plugin, ioreg, clock) = samplingPlugin(PowerDrawFixtures.onBattery)
+        expect(near(plugin.sample().powerDraw?.macWatts, 48.396), "the first sample has no change to wait out")
+        clock.advance(by: 60)
         ioreg.value = PowerDrawFixtures.acCharging
-        expect(plugin.sample().powerDraw?.macWatts == nil, "the sample after plugging in waits for the telemetry")
-        expect(near(plugin.sample().powerDraw?.macWatts, 45.4), "the one after that uses it")
+        expect(plugin.sample().powerDraw?.macWatts == nil, "a minute after the last sample, a plug-in waits for the telemetry")
+        clock.advance(by: 95)
+        expect(near(plugin.sample().powerDraw?.macWatts, 45.4), "95 s after the change the telemetry is used")
+    }
+
+    /// Review scenario A: the tab was last shown on battery, then the Mac sat on the charger for
+    /// three hours. The change happened long ago, so nothing is withheld.
+    private static func testHoursOnTheChargerAreNotAFreshPlugIn() {
+        let (plugin, ioreg, clock) = samplingPlugin(PowerDrawFixtures.onBattery)
+        _ = plugin.sample()
+        clock.advance(by: 3 * 60 * 60)
+        ioreg.value = PowerDrawFixtures.acCharging
+        expect(near(plugin.sample().powerDraw?.macWatts, 45.4), "after three hours unseen, the source change is not fresh")
+    }
+
+    /// Review scenario B: plugged in just before the tab opened, closed, reopened at 30 s.
+    private static func testReopeningWithinTheLagStillWaits() {
+        let (plugin, ioreg, clock) = samplingPlugin(PowerDrawFixtures.onBattery)
+        _ = plugin.sample()
+        clock.advance(by: 5)
+        ioreg.value = PowerDrawFixtures.acCharging
+        expect(plugin.sample().powerDraw?.macWatts == nil, "5 s after plugging in the Mac figure waits")
+        clock.advance(by: 25)
+        expect(plugin.sample().powerDraw?.macWatts == nil, "reopened 30 s after the change, it still waits: same source, but inside the lag")
+    }
+
+    private static func testTrackerOnlyTrustsAChangeItCanTime() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let first = SourceChangeTracker().observing(false, at: start)
+        expect(!first.isSettling(at: start), "the first reading is not a change")
+        let soon = first.observing(true, at: start + 30)
+        expect(soon.isSettling(at: start + 30) && soon.isSettling(at: start + 119), "a change seen 30 s after the last sample settles for 90 s")
+        expect(!soon.isSettling(at: start + 121), "and is settled after that")
+        let late = first.observing(true, at: start + 600)
+        expect(!late.isSettling(at: start + 600), "a change seen 10 minutes after the last sample cannot be timed, so it is trusted")
+        let unknown = first.observing(nil, at: start + 30)
+        expect(unknown == first, "a sample with no charger reading changes nothing")
     }
 }
 
@@ -109,5 +153,19 @@ private final class LockedText: @unchecked Sendable {
     var value: String {
         get { lock.withLock { stored } }
         set { lock.withLock { stored = newValue } }
+    }
+}
+
+/// A clock the test moves forward between samples.
+private final class LockedDate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Date
+
+    init(_ date: Date) { stored = date }
+
+    var value: Date { lock.withLock { stored } }
+
+    func advance(by seconds: TimeInterval) {
+        lock.withLock { stored = stored.addingTimeInterval(seconds) }
     }
 }

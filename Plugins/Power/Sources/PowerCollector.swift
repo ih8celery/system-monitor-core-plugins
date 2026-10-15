@@ -4,11 +4,12 @@ import SystemBarKit
 /// Two pmset reads, one ioreg read of the battery driver, and the parsing of them. Pure apart
 /// from `collect(using:)`.
 enum PowerCollector {
-    /// `previousExternal` is the last sample's charger state, nil for the first sample.
+    /// `isSettling` says, from this sample's charger state, whether the charger came or went
+    /// too recently for the telemetry to be trusted.
     static func collect(
         using host: HostServices,
         chargeLimitFile: URL = PowerCollector.chargeLimitFile,
-        previousExternal: Bool? = nil
+        isSettling: (Bool?) -> Bool = { _ in false }
     ) -> PowerSnapshot {
         let battery = host.run(path: "/usr/bin/pmset", arguments: ["-g", "batt"])
         let driver = host.run(path: ioregPath, arguments: ioregArguments)
@@ -16,7 +17,6 @@ enum PowerCollector {
         let parsedBattery = parseBatteryStatus(battery.output)
         let driverEntry = driver.status == 0 ? batteryEntry(driver.output) : nil
         let isExternal = driverEntry?["ExternalConnected"] as? Bool
-        let sourceJustChanged = previousExternal != nil && isExternal != nil && previousExternal != isExternal
         let parsedAssertions = assertions.status == 0 ? parseSleepAssertions(assertions.output) : []
         var status: [String] = []
         if battery.status != 0 { status.append("battery unavailable") }
@@ -30,7 +30,7 @@ enum PowerCollector {
             chargeState: driverEntry.flatMap(chargeState(from:)),
             batteryDetail: driverEntry.flatMap(batteryDetail(from:)),
             chargeLimit: chargeLimit(fileAt: chargeLimitFile),
-            powerDraw: powerDraw(from: driverEntry, sourceJustChanged: sourceJustChanged),
+            powerDraw: powerDraw(from: driverEntry, sourceJustChanged: isSettling(isExternal)),
             hasDriverReading: driver.status == 0,
             isExternal: isExternal,
             sleepAssertions: parsedAssertions,
