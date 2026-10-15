@@ -50,7 +50,7 @@ A value of the wrong kind or outside its range keeps the default and is named in
 
 ## Network notifications
 
-The Network tab posts a macOS notification when the internet stops answering its pings for several rounds in a row (once per outage, and again only after a ping has answered), and when the internet ping averages above a limit for a stretch of minutes (once, and again only after the average has dropped back). The pings run every 5 seconds with the window closed, so both rules work while it is. A round with no IPv4 route at all (an IPv6-only network, or no network) is not an outage and never counts. SystemBar keeps one notification per rule per hour. Both rules are on by default; set these in the tab's `settings` in `plugins.json`:
+The Network tab posts a macOS notification when the internet stops answering its pings for several rounds in a row (once per outage, and again only after a ping has answered), and when the internet ping averages above a limit for a stretch of minutes (once, and again only after the average has dropped back). The pings run every 5 seconds with the window closed, so both rules work while it is. A round with no IPv4 route at all (an IPv6-only network, or no network) is not an outage and never counts. Nor does a run carry across a sleep: failures before the Mac slept and after it woke are not "in a row". SystemBar keeps one notification per rule per hour. Both rules are on by default; set these in the tab's `settings` in `plugins.json`:
 
 | Key | Meaning | Default |
 |---|---|---|

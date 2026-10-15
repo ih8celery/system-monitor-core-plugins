@@ -95,6 +95,9 @@ enum NetworkSampling {
     static let pingInterval: TimeInterval = 5
     /// How long one ping waits for its reply. Two in a row stay inside one ping interval.
     static let pingTimeout: TimeInterval = 2
+    /// Rounds further apart than this were not in a row: the Mac slept, or the host stopped
+    /// calling. A round or two late is still in a row.
+    static let maximumRoundGap: TimeInterval = 3 * pingInterval
     /// nettop alone takes about a second by design, so it and lsof run this often, and only while
     /// the tab shows.
     static let trafficInterval: TimeInterval = 30

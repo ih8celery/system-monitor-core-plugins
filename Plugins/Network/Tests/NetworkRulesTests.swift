@@ -12,6 +12,7 @@ enum NetworkRulesTests {
         testSettingsKeepTheDefaultForABadValueAndSaySo()
         testUnreachableFiresOnceAtTheNthFailure()
         testUnreachableIgnoresNoRouteRounds()
+        testUnreachableStartsAgainAfterASleep()
         testUnreachableCanBeTurnedOff()
         testSlowInternetFiresOnceTheWindowIsFull()
         testSlowInternetFiresAgainOnlyAfterRecovering()
@@ -105,6 +106,17 @@ enum NetworkRulesTests {
         expect(noRoute.isEmpty, "rounds with no route never count as an outage, got \(noRoute)")
         let broken = posted([round(0, internet: failed), round(1, internet: failed), round(2, router: .unknown, internet: .unknown), round(3, internet: failed)])
         expect(broken.isEmpty, "and they break a run of failures rather than extend it, got \(broken)")
+    }
+
+    /// Two failures before the lid closed and one after waking are not three in a row.
+    private static func testUnreachableStartsAgainAfterASleep() {
+        let asleep = 120
+        let woke = posted([round(0, internet: failed), round(1, internet: failed), round(1 + asleep, internet: failed)])
+        expect(woke.isEmpty, "a gap of many rounds ends the run, got \(woke.map(\.id))")
+        let after = posted([round(0, internet: failed), round(1, internet: failed)] + (0..<3).map { round(1 + asleep + $0, internet: failed) })
+        expect(after.map(\.id) == ["network.internet-unreachable"], "three in a row after waking still fire, got \(after.map(\.id))")
+        let late = posted((0..<3).map { round($0 * 2, internet: failed) })
+        expect(late.map(\.id) == ["network.internet-unreachable"], "a round or two late is still in a row, got \(late.map(\.id))")
     }
 
     private static func testUnreachableCanBeTurnedOff() {
