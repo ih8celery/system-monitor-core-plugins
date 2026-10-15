@@ -13,6 +13,7 @@ struct CorePluginTests {
             DiskRowsTests.runAll()
             DiskStoreTests.runAll()
             DiskScanTests.runAll()
+            DiskActivityTests.runAll()
             MemoryTests.runAll()
             NetworkTests.runAll()
             CapacityTests.runAll()
