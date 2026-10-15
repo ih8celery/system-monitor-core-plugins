@@ -60,47 +60,71 @@ private struct LatencyFigure: View {
     }
 }
 
-/// Five minutes of pings across the full width, so the time axis never stretches. Each line breaks
-/// where a ping did not answer; a failed ping is a red mark at the height of its line's last
-/// reply, or at the top when there was none.
+/// Five minutes of pings across the full width, each placed by its time, so the time axis never
+/// stretches and a sleep shows as empty space rather than pre- and post-sleep pings side by side.
+/// Each line breaks where a ping did not answer and across a gap; a failed ping is a red mark at
+/// the height of its line's last reply, or at the top when there was none.
 struct LatencyGraph: View {
     let samples: [LatencySample]
 
     private static let markSize: CGFloat = 4
     private static let minimumScale = 10.0
+    /// The graph's span: the history's capacity in rounds.
+    static let window = TimeInterval(LatencyHistory.capacity - 1) * NetworkSampling.pingInterval
+
+    /// Where a sample sits: 0 at the graph's left edge to 1 at the latest round, and whether its
+    /// line breaks before it because the previous round was too long ago.
+    struct Slot: Equatable {
+        let fraction: Double
+        let breaksBefore: Bool
+    }
+
+    /// One slot per sample, in order; nil for a sample older than the window.
+    static func slots(for samples: [LatencySample]) -> [Slot?] {
+        guard let latest = samples.last?.at else { return [] }
+        return samples.indices.map { index in
+            let age = latest.timeIntervalSince(samples[index].at)
+            guard age <= window else { return nil }
+            let gap = index == 0 ? 0 : samples[index].at.timeIntervalSince(samples[index - 1].at)
+            return Slot(fraction: 1 - age / window, breaksBefore: gap > NetworkSampling.maximumRoundGap)
+        }
+    }
 
     var body: some View {
         Canvas { context, size in
             // Inset by a mark, so a point or a red mark at an edge is drawn whole.
             let plot = CGRect(origin: .zero, size: size).insetBy(dx: Self.markSize, dy: Self.markSize)
-            let replies = samples.flatMap { [$0.router.milliseconds, $0.internet.milliseconds] }.compactMap { $0 }
+            let slots = Self.slots(for: samples)
+            let replies = zip(samples, slots).filter { $0.1 != nil }.flatMap { [$0.0.router.milliseconds, $0.0.internet.milliseconds] }.compactMap { $0 }
             let scale = max(replies.max() ?? 0, Self.minimumScale)
-            let step = plot.width / CGFloat(max(LatencyHistory.capacity - 1, 1))
-            let firstSlot = LatencyHistory.capacity - samples.count
-            let x = { (index: Int) in plot.minX + CGFloat(firstSlot + index) * step }
+            let x = { (slot: Slot) in plot.minX + plot.width * CGFloat(slot.fraction) }
             let y = { (milliseconds: Double) in plot.minY + plot.height * (1 - CGFloat(milliseconds / scale)) }
-            draw(\.router, color: LatencySection.routerColor, in: &context, top: plot.minY, x: x, y: y)
-            draw(\.internet, color: LatencySection.internetColor, in: &context, top: plot.minY, x: x, y: y)
+            draw(\.router, slots: slots, color: LatencySection.routerColor, in: &context, top: plot.minY, x: x, y: y)
+            draw(\.internet, slots: slots, color: LatencySection.internetColor, in: &context, top: plot.minY, x: x, y: y)
         }
         .background(Color.white.opacity(0.04))
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
-    /// One line, broken at every sample without a reply; a reply with none either side is a dot.
-    private func draw(_ line: KeyPath<LatencySample, LatencyPoint>, color: Color, in context: inout GraphicsContext, top: CGFloat, x: (Int) -> CGFloat, y: (Double) -> CGFloat) {
+    /// One line, broken at every sample without a reply and across every gap; a reply with no
+    /// joined neighbour is a dot.
+    private func draw(_ line: KeyPath<LatencySample, LatencyPoint>, slots: [Slot?], color: Color, in context: inout GraphicsContext, top: CGFloat, x: (Slot) -> CGFloat, y: (Double) -> CGFloat) {
         var path = Path()
         var isDrawing = false
         var lastY = top
         for (index, sample) in samples.enumerated() {
+            guard let slot = slots[index] else { continue }
+            if slot.breaksBefore { isDrawing = false }
             let value = sample[keyPath: line]
             guard let milliseconds = value.milliseconds else {
                 isDrawing = false
-                if value.isFailure { context.fill(mark(at: CGPoint(x: x(index), y: lastY)), with: .color(Palette.critical)) }
+                if value.isFailure { context.fill(mark(at: CGPoint(x: x(slot), y: lastY)), with: .color(Palette.critical)) }
                 continue
             }
-            let next = CGPoint(x: x(index), y: y(milliseconds))
-            let isAlone = !isDrawing && (index + 1 == samples.count || samples[index + 1][keyPath: line].milliseconds == nil)
-            if isAlone { context.fill(mark(at: next), with: .color(color)) }
+            let next = CGPoint(x: x(slot), y: y(milliseconds))
+            let isLast = index + 1 == samples.count
+            let joinsNext = !isLast && samples[index + 1][keyPath: line].milliseconds != nil && slots[index + 1]?.breaksBefore == false
+            if !isDrawing && !joinsNext { context.fill(mark(at: next), with: .color(color)) }
             if isDrawing { path.addLine(to: next) } else { path.move(to: next) }
             isDrawing = true
             lastY = next.y

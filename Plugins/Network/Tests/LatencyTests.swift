@@ -27,6 +27,7 @@ enum NetworkLatencyTests {
         testDiagnosisNamesTheLikelyFault()
         testLatencyText()
         testRouterFigureSaysNoRouterWhenOnlyTheRouterIsMissing()
+        testGraphPlacesPingsByTimeAndBreaksAtAGap()
         testRealPingOfLoopbackGetsAReply()
         testRealPingGivesUpAtItsTimeout()
         testPluginPingsEveryCollectButSamplesTrafficOnlyWhileShown()
@@ -278,6 +279,24 @@ enum NetworkLatencyTests {
     private static func testLatencyText() {
         expect(latencyText(.reply(3.24)) == "3.2 ms" && latencyText(.reply(18.4)) == "18 ms", "under 10 ms keeps a decimal")
         expect(latencyText(.failed("timed out")) == "failed" && latencyText(.unknown) == "no route" && latencyText(nil) == "-- ms", "and the rest say what happened")
+    }
+
+    /// After a sleep, the pings before it sit where their time puts them, not next to the ones
+    /// after, and the line does not join across the gap.
+    private static func testGraphPlacesPingsByTimeAndBreaksAtAGap() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        func at(_ seconds: TimeInterval) -> LatencySample { LatencySample(at: start.addingTimeInterval(seconds), router: .reply(2), internet: .reply(20)) }
+        let steady = (0..<LatencyHistory.capacity).map { at(TimeInterval($0) * NetworkSampling.pingInterval) }
+        let steadySlots = LatencyGraph.slots(for: steady)
+        expect(steadySlots.first??.fraction == 0 && steadySlots.last??.fraction == 1, "a full history spans the graph, got \(String(describing: steadySlots.first)) \(String(describing: steadySlots.last))")
+        expect(steadySlots.allSatisfy { $0?.breaksBefore == false }, "and is one unbroken line")
+
+        let slept = [at(0), at(5), at(200), at(205)]
+        let slots = LatencyGraph.slots(for: slept)
+        expect(slots.compactMap { $0?.breaksBefore } == [false, false, true, false], "the line breaks at the sleep, got \(slots)")
+        expect(abs((slots[1]?.fraction ?? 0) - (1 - 200 / LatencyGraph.window)) < 1e-9, "a ping before the sleep sits by its time, got \(String(describing: slots[1]))")
+        expect(LatencyGraph.slots(for: [at(0), at(600)]).first! == nil, "a ping older than the window is off the graph")
+        expect(LatencyGraph.slots(for: []).isEmpty, "no pings, no slots")
     }
 
     /// No router found while the internet was pinged (a full-tunnel VPN) is not "no route".
