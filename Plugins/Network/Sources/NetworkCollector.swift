@@ -7,12 +7,15 @@ import SystemBarKit
 /// own queue. The hostname cache and the in-flight set are touched only on the main thread.
 final class NetworkCollector: @unchecked Sendable {
     private let host: HostServices
+    /// Reads a process's executable path, for the names nettop gives as a version or cut short.
+    private let executablePath: @Sendable (Int32) -> String?
     private let dnsQueue = DispatchQueue(label: "systembar.network.dns", qos: .utility)
     private var hostnameCache: [String: HostnameCacheEntry] = [:]
     private var hostnameLookupsInFlight = Set<String>()
 
-    init(host: HostServices) {
+    init(host: HostServices, executablePath: @escaping @Sendable (Int32) -> String? = { ProcessPath.executable(pid: $0) }) {
         self.host = host
+        self.executablePath = executablePath
     }
 
     func sample() -> NetworkReading {
@@ -20,7 +23,7 @@ final class NetworkCollector: @unchecked Sendable {
             "-d", "-P", "-L", "2", "-s", "1", "-x", "-n", "-J", "bytes_in,bytes_out"
         ])
         let lsof = host.run(path: "/usr/sbin/lsof", arguments: ["-n", "-P", "-iTCP"])
-        let rows = Self.parseNettopCSV(nettop.output)
+        let rows = Self.parseNettopCSV(nettop.output, executablePath: executablePath)
             .filter { $0.downloadRate > 0 || $0.uploadRate > 0 }
             .sorted {
                 if $0.combinedRate == $1.combinedRate {
@@ -76,9 +79,12 @@ final class NetworkCollector: @unchecked Sendable {
         return now.timeIntervalSince(entry.cachedAt) < ttl
     }
 
-    static func parseNettopCSV(_ csv: String) -> [NetworkProcessSnapshot] {
+    /// Rows keyed by the readable name, so the processes of one app add up under it. A process
+    /// is looked up once, though it appears in both blocks.
+    static func parseNettopCSV(_ csv: String, executablePath: (Int32) -> String? = { _ in nil }) -> [NetworkProcessSnapshot] {
         var totals: [String: (downloaded: UInt64, uploaded: UInt64)] = [:]
         var rates: [String: (download: Double, upload: Double)] = [:]
+        var names: [String: String] = [:]
         var blockIndex = -1
 
         for rawLine in csv.split(whereSeparator: \.isNewline) {
@@ -91,7 +97,8 @@ final class NetworkCollector: @unchecked Sendable {
             }
 
             guard blockIndex >= 0 else { continue }
-            let name = normalizedProcessName(fields[0])
+            let name = names[fields[0]] ?? readableName(fields[0], executablePath: executablePath)
+            names[fields[0]] = name
             guard !name.isEmpty else { continue }
             let bytesIn = UInt64(fields[1].trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
             let bytesOut = UInt64(fields[2].trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
@@ -154,12 +161,19 @@ final class NetworkCollector: @unchecked Sendable {
         return fields
     }
 
-    private static func normalizedProcessName(_ nameWithPID: String) -> String {
+    private static func readableName(_ nameWithPID: String, executablePath: (Int32) -> String?) -> String {
+        let (name, pid) = splitNameAndPID(nameWithPID)
+        guard let pid, AppNames.needsPath(name) else { return name }
+        return AppNames.readable(name, path: executablePath(pid))
+    }
+
+    /// nettop's `name.pid`, split; a name with no numeric suffix has no pid.
+    private static func splitNameAndPID(_ nameWithPID: String) -> (name: String, pid: Int32?) {
         let trimmed = nameWithPID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let dotIndex = trimmed.lastIndex(of: ".") else { return trimmed }
+        guard let dotIndex = trimmed.lastIndex(of: ".") else { return (trimmed, nil) }
         let suffix = trimmed[trimmed.index(after: dotIndex)...]
-        guard !suffix.isEmpty, suffix.allSatisfy(\.isNumber) else { return trimmed }
-        return String(trimmed[..<dotIndex])
+        guard !suffix.isEmpty, suffix.allSatisfy(\.isNumber) else { return (trimmed, nil) }
+        return (String(trimmed[..<dotIndex]), Int32(suffix))
     }
 
     static func parseLsofTCP(_ output: String) -> [TCPConnection] {

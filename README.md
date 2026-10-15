@@ -37,16 +37,30 @@ before; the move does not touch it.
 
 ## Memory notifications
 
-The Memory tab posts a macOS notification when memory pressure rises into Warning or Critical (each fires once on the rise, and again only after pressure has dropped to Normal), and when swapping holds at or above a rate for a whole stretch of minutes (every sample-to-sample rate at or above it, one quiet sample allowed, so a single burst or a gap such as sleep does not count; once, and again only after it has lapsed). SystemBar keeps one notification per rule per hour. Both rules are on by default; set these in the tab's `settings` in `plugins.json`:
+The Memory tab posts a macOS notification when memory pressure rises into Warning or Critical (each fires once on the rise, and again only after pressure has dropped to Normal), and when swapping holds at or above a rate for a whole stretch of minutes (every sample-to-sample rate at or above it, up to a tenth of the window allowed to be quiet, so a single burst or a gap such as sleep does not count; once, and again only after it has lapsed). SystemBar keeps one notification per rule per hour. Both rules are on by default; set these in the tab's `settings` in `plugins.json`:
 
 | Key | Meaning | Default |
 |---|---|---|
 | `notifyPressure` | `false` turns off the Warning and Critical notifications | `true` |
 | `notifySwap` | `false` turns off the heavy-swapping notification | `true` |
 | `swapMegabytesPerMinute` | Data swapped in plus out, in MB per minute (1024-based), that swapping must hold for the whole window to count as heavy; 1 to 1000000 | `100` |
-| `swapMinutes` | How long that average must hold, in minutes, 1 to 60 | `5` |
+| `swapMinutes` | How long swapping must hold at that rate, in minutes, 1 to 60 | `5` |
 
 A value of the wrong kind or outside its range keeps the default and is named in SystemBar's log.
+
+## Network notifications
+
+The Network tab posts a macOS notification when the internet stops answering its pings for several rounds in a row (once per outage, and again only after a ping has answered), and when the internet ping averages above a limit for a stretch of minutes (once, and again only after the average has dropped back). The pings run every 5 seconds with the window closed, so both rules work while it is. A round with no IPv4 route at all (an IPv6-only network, or no network) is not an outage and never counts. SystemBar keeps one notification per rule per hour. Both rules are on by default; set these in the tab's `settings` in `plugins.json`:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `notifyUnreachable` | `false` turns off the internet-unreachable notification | `true` |
+| `unreachablePings` | Failed pings in a row, 5 seconds apart, that count as unreachable; a whole number from 1 to 720 | `3` |
+| `notifySlowInternet` | `false` turns off the slow-internet notification | `true` |
+| `slowInternetMilliseconds` | The average internet ping, in ms, above which the connection counts as slow; 1 to 10000 | `200` |
+| `slowInternetMinutes` | How long that average must hold, in minutes, 1 to 60 | `5` |
+
+A value of the wrong kind or outside its range keeps the default, is named under the tab's latency graph, and is written to SystemBar's log.
 
 ## Develop
 
@@ -102,7 +116,7 @@ Each interval lives in that tab's plugin, next to the code that uses it. The Dis
 |---|---|---|---|
 | Power | `pmset` and `ioreg` every 60s | — | `PowerPlugin.refreshInterval` |
 | Dev | `ps`, `lsof`, `pmset` and two usage reads a second apart, every 60s | — | `DevSampling` in `Plugins/Dev/Sources/CapacityModels.swift` |
-| Memory | Kernel counters and pressure level every 3s; `ioreg` every 30s; a graph point about every 10s | A kernel read every 10s, so the pressure graph is full on open | `MemorySampling` in `Plugins/Memory/Sources/MemoryModels.swift` |
+| Memory | Kernel counters and pressure level every 3s; `ioreg` every 30s, only while the tab shows; a graph point about every 10s | A kernel read every 10s, so the pressure graph is full on open | `MemorySampling` in `Plugins/Memory/Sources/MemoryModels.swift` |
 | Disk | Volumes and `tmutil` every 30s; the read/write graph's counters read in process through IOKit (no subprocess) every second; the overview scan every 3 h and the developer and simulator scans every 6 h, each folder one `du` capped at 5 min and each plan at 15 min | A due check every 15 min, unless `"backgroundScans": false`; the graph's read every 5 s, so it is full on open | `DiskSampling` in `Plugins/Disk/Sources/DiskModels.swift` |
 | Network | Pings to the router and the internet every 5s; the Wi-Fi link every 5s; `nettop` and `lsof` every 30s; `networkQuality` only on the button | The pings, every 5s | `NetworkSampling` in `Plugins/Network/Sources/NetworkModels.swift` |
 | CPU | Load averages, uptime, thermal state and `pmset -g therm` every 10s; `ioreg` for the GPU line every 1s while showing; the headline, history, cluster bars and user/system split come from the 1-second feed | — | `CPUSampling` in `Plugins/CPU/Sources/CPUModels.swift` |

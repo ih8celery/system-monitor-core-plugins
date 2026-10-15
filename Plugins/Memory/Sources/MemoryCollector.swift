@@ -4,13 +4,20 @@ import SystemBarKit
 
 /// The Memory tab's sampler. The kernel's memory figures and its pressure level are sysctls and
 /// Mach calls, read on every collect (every 3 seconds); ioreg is a slower subprocess, so its
-/// answer is cached and refreshed every 30 seconds. Only the plugin's queue calls `sample`,
-/// which is what makes the unlocked cache safe.
+/// answer is cached and refreshed every 30 seconds, and only while the tab shows: the GPU
+/// figures are two pills nobody sees while it is hidden. Only the plugin's queue calls `sample`,
+/// which is what makes the unlocked cache safe; `setShowing` comes from main, so the flag has a lock.
 final class MemoryCollector: @unchecked Sendable {
     private let host: HostServices
     private let kernelPressureLevel: () -> Int32?
     private var lastGPURefresh = Date.distantPast
     private var cachedGPU = GPUSnapshot()
+    private let showingLock = NSLock()
+    /// Starts false: the host reports every show and never a hidden start, so a tab nobody has
+    /// opened must not read ioreg.
+    private var isShowing = false
+    /// Set until the first sample after a show, so that sample reads ioreg whatever the cache's age.
+    private var isGPUStale = true
 
     /// `kernelPressureLevel` reads `kern.memorystatus_vm_pressure_level` in the app and is a
     /// fake in tests.
@@ -22,11 +29,29 @@ final class MemoryCollector: @unchecked Sendable {
     func sample(at date: Date = Date()) -> MemoryReading {
         let memory = Self.collectMemorySnapshot()
         let pressure = kernelPressureLevel().flatMap(MemoryPressureLevel.init(kernelLevel:))
-        if date.timeIntervalSince(lastGPURefresh) >= MemorySampling.gpuRefreshInterval {
+        if shouldRefreshGPU(at: date) {
             lastGPURefresh = date
             cachedGPU = collectGPUSnapshot()
         }
         return MemoryReading(memory: memory, gpu: cachedGPU, pressure: pressure, sampledAt: date)
+    }
+
+    /// The host showing or hiding the tab. Hidden, ioreg is not run; showing again makes the next
+    /// sample read it at once, so the pills are fresh when the popover opens.
+    func setShowing(_ isShowing: Bool) {
+        showingLock.withLock {
+            if isShowing && !self.isShowing { isGPUStale = true }
+            self.isShowing = isShowing
+        }
+    }
+
+    private func shouldRefreshGPU(at date: Date) -> Bool {
+        showingLock.withLock {
+            guard isShowing else { return false }
+            let isDue = isGPUStale || date.timeIntervalSince(lastGPURefresh) >= MemorySampling.gpuRefreshInterval
+            if isDue { isGPUStale = false }
+            return isDue
+        }
     }
 
     /// The kernel's pressure level, or nil when the sysctl fails.
@@ -112,14 +137,6 @@ final class MemoryCollector: @unchecked Sendable {
         }
 
         let suffix = text[equalsRange.upperBound...].drop(while: { $0 == " " })
-        if suffix.first == "\"" {
-            let afterOpeningQuote = suffix.index(after: suffix.startIndex)
-            guard let closingQuote = suffix[afterOpeningQuote...].firstIndex(of: "\"") else {
-                return nil
-            }
-            return String(suffix[afterOpeningQuote..<closingQuote])
-        }
-
         let token = suffix.prefix { !$0.isNewline && $0 != "," && $0 != "}" }
         return String(token).trimmingCharacters(in: .whitespacesAndNewlines)
     }
