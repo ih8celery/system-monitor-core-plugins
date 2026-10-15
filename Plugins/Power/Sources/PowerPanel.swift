@@ -56,6 +56,8 @@ struct PowerPanel: View {
             Divider().background(Color.white.opacity(0.08))
 
             VStack(alignment: .leading, spacing: 10) {
+                PowerHistoryView(history: plugin.history)
+                    .padding(.bottom, 8)
                 SectionTitle("Likely Contributors")
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {

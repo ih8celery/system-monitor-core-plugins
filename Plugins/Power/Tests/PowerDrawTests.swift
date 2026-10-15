@@ -156,7 +156,7 @@ enum PowerDrawTests {
 }
 
 /// Text a `@Sendable` runner reads while the test changes it between samples.
-private final class LockedText: @unchecked Sendable {
+final class LockedText: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: String
 
@@ -169,7 +169,7 @@ private final class LockedText: @unchecked Sendable {
 }
 
 /// A clock the test moves forward between samples.
-private final class LockedDate: @unchecked Sendable {
+final class LockedDate: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: Date
 
