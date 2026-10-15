@@ -15,6 +15,7 @@ enum PowerTests {
         testBatteryStatLabel()
         testParseSleepAssertions()
         testContributorsComeFromTheProcessFeed()
+        testContributorsShowTheSameCPUPercentAsTheCPUTab()
         testCollectRunsPmsetTwiceAndReadsTheAnswers()
         testCollectSaysWhatIsUnavailableWhenPmsetFails()
         testCollectReadsAMacHeldAtItsLimitAsHeld()
@@ -96,6 +97,18 @@ enum PowerTests {
         let contributors = PowerCollector.contributors(from: rows)
         expect(contributors.map(\.name) == ["clang", "idle"], "contributors are the feed's top CPU rows in order")
         expect(contributors[0].evidence.contains("CPU") && contributors[0].evidence.contains("memory"), "each contributor says why, got \(contributors[0].evidence)")
+    }
+
+    /// ps reports CPU per core, so a busy process can read 240%. The CPU tab's top-CPU row shows
+    /// `percentString(machineCPUPercent(cpu))`; Power must show that same figure for that row.
+    private static func testContributorsShowTheSameCPUPercentAsTheCPUTab() {
+        let row = ProcessSnapshot(name: "clang", count: 4, physical: 2_000_000, virtualSize: 0, cpu: 240)
+        let evidence = PowerCollector.contributors(from: [row])[0].evidence
+        let cpuTabFigure = percentString(machineCPUPercent(row.cpu))
+        expect(evidence.hasPrefix("\(cpuTabFigure) CPU"), "Power shows the CPU tab's figure \(cpuTabFigure), got \(evidence)")
+        if ProcessInfo.processInfo.activeProcessorCount > 1 {
+            expect(!evidence.contains(percentString(row.cpu)), "Power no longer shows the per-core figure, got \(evidence)")
+        }
     }
 
     private static func testCollectRunsPmsetTwiceAndReadsTheAnswers() {
