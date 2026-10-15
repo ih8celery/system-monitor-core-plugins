@@ -17,7 +17,7 @@ func latencyText(_ point: LatencyPoint?) -> String {
     switch point {
     case .reply(let milliseconds): String(format: milliseconds >= 10 ? "%.0f ms" : "%.1f ms", max(0, milliseconds))
     case .failed: "failed"
-    case .unknown: "no router"
+    case .unknown: "no route"
     case nil: "-- ms"
     }
 }

@@ -15,7 +15,13 @@ enum NetworkLatencyTests {
         testDefaultGatewayFromTheRoutingTable()
         testPingAddressSetting()
         testProbeRecordsRepliesAndFailures()
-        testProbeWithoutARouterPingsOnlyTheInternet()
+        testNoRouterStillPingsTheInternet()
+        testNoRouterAndNoIPv4RouteIsUnknown()
+        testNoRouterAndATimeoutIsAFailure()
+        testNoRouteWithARouterIsAFailure()
+        testProbePingsBothAtOnce()
+        testNotesShowTheSettingProblemAndTheDiagnosis()
+        testUnreachableIsReadFromTheRoutersError()
         testHistoryKeepsTheLastFiveMinutes()
         testDiagnosisNamesTheLikelyFault()
         testLatencyText()
@@ -135,14 +141,50 @@ enum NetworkLatencyTests {
         expect(refused.router == .failed("No route to host") && refused.internet == .failed("No route to host"), "a send that fails says why, got \(refused)")
     }
 
-    private static func testProbeWithoutARouterPingsOnlyTheInternet() {
+    /// A full-tunnel VPN can route the internet through utunN with no gateway address, so no router
+    /// is found while IPv4 works: the internet is still pinged, and the router line is a gap.
+    private static func testNoRouterStillPingsTheInternet() {
         let asked = LogRecorder()
         let sample = LatencyProbe.measure(router: nil, internet: "1.1.1.1", at: Date()) { address, _ in
             asked.record(address)
             return .reply(milliseconds: 20)
         }
-        expect(asked.messages == ["1.1.1.1"], "with no router known only the internet is pinged, got \(asked.messages)")
-        expect(sample.router == .unknown && sample.internet == .reply(20), "and the router is marked unknown, not failed, got \(sample)")
+        expect(asked.messages == ["1.1.1.1"], "with no router the internet is still pinged, got \(asked.messages)")
+        expect(sample.router == .unknown && sample.internet == .reply(20), "and answers, with the router a gap, got \(sample)")
+        expect(LatencyState(internetAddress: "1.1.1.1", settingsProblem: nil).recording(sample).notes.isEmpty, "no note when the internet answers")
+    }
+
+    /// An IPv6-only network, or none at all: the kernel refuses the send at once for want of an
+    /// IPv4 route, which is no outage of a connection that works.
+    private static func testNoRouterAndNoIPv4RouteIsUnknown() {
+        let sample = LatencyProbe.measure(router: nil, internet: "1.1.1.1", at: Date()) { _, _ in .noRoute("Network is unreachable") }
+        expect(sample.router == .unknown && sample.internet == .unknown, "a send the kernel cannot route is unknown, not failed, got \(sample)")
+        expect(LatencyHistory().appending(sample).diagnosis == nil, "no false alarm about the Wi-Fi or local network")
+        expect(LatencyState(internetAddress: "1.1.1.1", settingsProblem: nil).recording(sample).notes == [LatencyHistory.noRouteNote], "the tab says why there is no line")
+    }
+
+    private static func testNoRouterAndATimeoutIsAFailure() {
+        let sample = LatencyProbe.measure(router: nil, internet: "1.1.1.1", at: Date()) { _, _ in .timeout }
+        expect(sample.router == .unknown && sample.internet == .failed("timed out"), "a ping that was sent and lost is a failure, got \(sample)")
+        expect(LatencyHistory().appending(sample).diagnosis == .localNetwork, "and with no router answering, points at the local network")
+    }
+
+    /// With a router, a send the kernel refuses is a failure like any other.
+    private static func testNoRouteWithARouterIsAFailure() {
+        let sample = LatencyProbe.measure(router: "192.168.1.1", internet: "1.1.1.1", at: Date()) { _, _ in .noRoute("No route to host") }
+        expect(sample.router == .failed("No route to host") && sample.internet == .failed("No route to host"), "got \(sample)")
+    }
+
+    /// Both targets silent costs one timeout, not two.
+    private static func testProbePingsBothAtOnce() {
+        let started = Date()
+        let sample = LatencyProbe.measure(router: "192.168.1.1", internet: "1.1.1.1", at: started, timeout: 0.4) { _, timeout in
+            Thread.sleep(forTimeInterval: timeout)
+            return .timeout
+        }
+        let waited = Date().timeIntervalSince(started)
+        expect(sample.router == .failed("timed out") && sample.internet == .failed("timed out"), "both time out, got \(sample)")
+        expect(waited < 0.7, "the two pings wait together, waited \(waited) s")
     }
 
     // MARK: - History and diagnosis
@@ -174,9 +216,48 @@ enum NetworkLatencyTests {
         expect(LatencyHistory().diagnosis == nil, "no sample, nothing to say")
     }
 
+    private static func testNotesShowTheSettingProblemAndTheDiagnosis() {
+        let failing = LatencySample(at: Date(), router: .reply(2), internet: .failed("timed out"))
+        let state = LatencyState(internetAddress: "1.1.1.1", settingsProblem: "settings problem").recording(failing)
+        expect(state.notes == ["settings problem", LatencyDiagnosis.internet.text], "a settings typo does not hide the diagnosis, got \(state.notes)")
+        expect(LatencyState(internetAddress: "1.1.1.1", settingsProblem: nil).notes.isEmpty, "nothing to say, no notes")
+    }
+
+    /// What a router sends back when it cannot deliver our echo: type 3, then the IPv4 header and
+    /// first eight bytes of the request it is answering.
+    private static func unreachable(code: UInt8 = 1, to destination: [UInt8] = [1, 1, 1, 1], identifier: UInt16 = 0xBEEF, sequence: UInt16 = 7) -> [UInt8] {
+        var original = [UInt8](repeating: 0, count: 20)
+        original[0] = 0x45
+        original[9] = UInt8(IPPROTO_ICMP)
+        original.replaceSubrange(16..<20, with: destination)
+        let request = Array(ICMPEcho.request(identifier: identifier, sequence: sequence).prefix(8))
+        var message: [UInt8] = [3, code, 0, 0, 0, 0, 0, 0] + original + request
+        let sum = ICMPEcho.checksum(message)
+        message[2] = UInt8(sum >> 8)
+        message[3] = UInt8(sum & 0xFF)
+        return message
+    }
+
+    private static func testUnreachableIsReadFromTheRoutersError() {
+        func reason(_ packet: [UInt8]) -> String? {
+            ICMPEcho.unreachableReason(packet, expectedDestination: "1.1.1.1", identifier: 0xBEEF, sequence: 7)
+        }
+        expect(reason(unreachable(code: 1)) == "host unreachable", "the router's error for our ping is read, got \(String(describing: reason(unreachable(code: 1))))")
+        expect(reason(unreachable(code: 0)) == "network unreachable", "with its reason")
+        expect(reason(unreachable(code: 13)) == "unreachable (code 13)", "an unnamed code still says unreachable")
+        var header = [UInt8](repeating: 0, count: 20)
+        header[0] = 0x45
+        expect(reason(header + unreachable()) == "host unreachable", "behind the IPv4 header Darwin adds")
+        expect(reason(unreachable(to: [8, 8, 8, 8])) == nil, "an error about a ping to elsewhere is not ours")
+        expect(reason(unreachable(sequence: 6)) == nil, "nor one about an earlier ping")
+        expect(reason(unreachable(identifier: 1)) == nil, "nor another program's")
+        expect(reason(Array(unreachable().prefix(30))) == nil, "a cut-short error is not read")
+        expect(reason(reply()) == nil, "a reply is not an error")
+    }
+
     private static func testLatencyText() {
         expect(latencyText(.reply(3.24)) == "3.2 ms" && latencyText(.reply(18.4)) == "18 ms", "under 10 ms keeps a decimal")
-        expect(latencyText(.failed("timed out")) == "failed" && latencyText(.unknown) == "no router" && latencyText(nil) == "-- ms", "and the rest say what happened")
+        expect(latencyText(.failed("timed out")) == "failed" && latencyText(.unknown) == "no route" && latencyText(nil) == "-- ms", "and the rest say what happened")
     }
 
     // MARK: - The real socket
@@ -190,14 +271,16 @@ enum NetworkLatencyTests {
         expect(milliseconds >= 0 && milliseconds < 1_000, "and the round trip is timed, got \(milliseconds) ms")
     }
 
-    /// 192.0.2.1 is reserved for documentation and never answers.
+    /// 127.255.255.254 is loopback, so the ping never leaves the Mac, and nothing answers it unless
+    /// someone has aliased that address onto lo0.
     private static func testRealPingGivesUpAtItsTimeout() {
         let started = Date()
-        let outcome = ICMPPinger().ping("192.0.2.1", timeout: 0.3)
+        let outcome = ICMPPinger().ping("127.255.255.254", timeout: 0.3)
         let waited = Date().timeIntervalSince(started)
-        if case .reply = outcome { expect(false, "a documentation address never answers") }
+        if case .reply = outcome { expect(false, "an unassigned loopback address never answers") }
         expect(waited < 1, "every wait is bounded by the timeout, waited \(waited) s")
         expect(ICMPPinger().ping("not an address", timeout: 0.3) == .failed("not an IPv4 address"), "a bad address fails at once")
+        expect(ICMPPinger().ping("0.0.0.1", timeout: 0.3) == .noRoute("No route to host"), "a send the kernel cannot route says so at once")
     }
 
     // MARK: - The plugin

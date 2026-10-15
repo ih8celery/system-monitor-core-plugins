@@ -208,47 +208,72 @@ struct NetworkProcessList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                SectionTitle("Bandwidth")
-                Spacer()
-                Text("\(totalCount)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
+            NetworkProcessListHeader(totalCount: totalCount)
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    ForEach(rows) { row in
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack {
-                                Text(row.name)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(rateString(row.combinedRate))
-                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                            }
-                            HStack {
-                                ProgressBar(value: row.combinedRate / maxRate, color: Palette.blue)
-                                    .frame(height: 6)
-                                Text("D \(rateString(row.downloadRate))")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 74, alignment: .trailing)
-                                Text("U \(rateString(row.uploadRate))")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 74, alignment: .trailing)
-                            }
-                        }
-                        .padding(9)
-                        .background(Color.white.opacity(0.055))
-                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    }
+                    ForEach(rows) { NetworkProcessRow(row: $0, maxRate: maxRate) }
                 }
             }
         }
     }
 }
 
+struct NetworkProcessListHeader: View {
+    let totalCount: Int
 
+    var body: some View {
+        HStack {
+            SectionTitle("Bandwidth")
+            Spacer()
+            Text("\(totalCount)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Text("Rates now; totals since each app started")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .help(NetworkProcessSnapshot.totalsHelp)
+    }
+}
+
+/// One app: its combined rate, a bar against the busiest, its download and upload rates, and
+/// what it has received and sent since it started.
+struct NetworkProcessRow: View {
+    let row: NetworkProcessSnapshot
+    let maxRate: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(row.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                Spacer()
+                Text(rateString(row.combinedRate))
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+            }
+            HStack {
+                ProgressBar(value: row.combinedRate / maxRate, color: Palette.blue)
+                    .frame(height: 6)
+                Text("D \(rateString(row.downloadRate))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 74, alignment: .trailing)
+                Text("U \(rateString(row.uploadRate))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 74, alignment: .trailing)
+            }
+            Text("Total \(row.totalsText)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .help(NetworkProcessSnapshot.totalsHelp)
+        }
+        .padding(9)
+        .background(Color.white.opacity(0.055))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+}

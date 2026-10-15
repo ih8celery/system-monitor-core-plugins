@@ -26,7 +26,7 @@ struct LatencySection: View {
                 Spacer()
                 ChartUnitLabel("ms - last 5 min")
             }
-            if let note = state.settingsProblem ?? state.history.diagnosis?.text {
+            ForEach(state.notes, id: \.self) { note in
                 Text(note)
                     .font(.caption)
                     .foregroundStyle(Palette.warning)
