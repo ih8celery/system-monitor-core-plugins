@@ -105,9 +105,6 @@ enum MemoryPressureLevel: Equatable {
 }
 
 struct GPUSnapshot {
-    /// ioreg's "Device Utilization %": how busy the GPU's compute units were at the last
-    /// read. A compute figure, nothing to do with memory.
-    var deviceUtilization: Double = 0
     /// ioreg's "In use system memory": what the GPU driver is using right now.
     var inUseMemory: UInt64 = 0
     /// ioreg's "Alloc system memory": what the GPU driver has set aside. It is wired RAM that no
