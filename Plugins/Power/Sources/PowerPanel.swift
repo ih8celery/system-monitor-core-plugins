@@ -26,7 +26,11 @@ struct PowerPanel: View {
                 if plugin.snapshot.hasDriverReading {
                     PowerDrawView(
                         draw: plugin.snapshot.powerDraw,
-                        flow: PowerFlow(draw: plugin.snapshot.powerDraw, isExternal: plugin.snapshot.isExternal, isSettling: plugin.snapshot.isSettling)
+                        flow: PowerFlow(
+                            draw: plugin.snapshot.powerDraw, isExternal: plugin.snapshot.isExternal,
+                            isSettling: plugin.snapshot.isSettling, isCharging: plugin.snapshot.chargeState == .charging
+                        ),
+                        isSettling: plugin.snapshot.isSettling
                     )
                 }
 
