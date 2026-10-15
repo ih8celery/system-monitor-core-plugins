@@ -10,6 +10,9 @@ enum MemoryTests {
         testSwapStatText()
         testUsedBreakdownNamesEveryPart()
         testMemorySegmentsMatchEveryBarSegment()
+        testBarSegmentsSumToTotalOnRealHostNumbers()
+        testBarNeverExceedsTotalWhenCountersRace()
+        testBarSumsToTotalOnThisMachine()
         testUsedAndAvailableFollowActivityMonitor()
         testUsedNeverExceedsTotalAndAppMemoryNeverGoesNegative()
         testMemorySnapshotDoesNotLeakHostPortRights()
@@ -34,6 +37,45 @@ enum MemoryTests {
         )
     }
 
+    /// A host_statistics64 reading from a 64 GiB Apple silicon Mac (16 KiB pages). The kernel keeps
+    /// about 60,000 pages outside every queue, so the queues alone fall short of the total; purgeable
+    /// pages already sit inside active and inactive; speculative pages already sit inside free.
+    private static func testBarSegmentsSumToTotalOnRealHostNumbers() {
+        let counts = MemoryPageCounts(
+            total: 68_719_476_736, pageSize: page,
+            free: 69_402, active: 1_789_673, inactive: 1_769_059, wired: 430_571, compressor: 75_117,
+            purgeable: 58_000, internal: 2_191_968, external: 1_321_533
+        )
+        let memory = memorySnapshot(from: counts)
+        let segments = memorySegments(for: memory)
+        let sum = segments.reduce(UInt64(0)) { $0 + $1.value }
+
+        expect(sum == memory.total, "the bar's segments sum to the machine's memory, got \(sum / page) of \(memory.total / page) pages")
+        expect(
+            segments.first { $0.kind == .free }?.value == 69_402 * page,
+            "purgeable pages are not added to Free, they are already inside active and inactive"
+        )
+        expect(
+            segments.first { $0.kind == .other }?.value == (4_194_304 - 69_402 - 1_789_673 - 1_769_059 - 430_571 - 75_117) * page,
+            "the pages the kernel holds outside every queue show as Other"
+        )
+    }
+
+    /// The counters are read a moment apart, so they can briefly add up to more than the total.
+    private static func testBarNeverExceedsTotalWhenCountersRace() {
+        let memory = MemorySnapshot(total: 100, active: 50, inactive: 40, wired: 30, compressed: 10, free: 5)
+        let segments = memorySegments(for: memory)
+        let sum = segments.reduce(UInt64(0)) { $0 + $1.value }
+        expect(sum == 100, "segments that would overshoot are trimmed to the total, got \(sum)")
+        expect(!segments.contains { $0.kind == .other }, "and nothing is left over for Other")
+    }
+
+    private static func testBarSumsToTotalOnThisMachine() {
+        let memory = MemoryCollector.collectMemorySnapshot()
+        let sum = memorySegments(for: memory).reduce(UInt64(0)) { $0 + $1.value }
+        expect(memory.total > 0 && sum == memory.total, "live host_statistics64 numbers sum to total, got \(sum) of \(memory.total)")
+    }
+
     private static func testUsedBreakdownNamesEveryPart() {
         let gib: UInt64 = 1_073_741_824
         let memory = MemorySnapshot(used: 46 * gib, appMemory: 20 * gib, cachedFiles: 14 * gib, wired: 23 * gib, compressed: 3 * gib)
@@ -46,7 +88,7 @@ enum MemoryTests {
     }
 
     private static func testMemorySegmentsMatchEveryBarSegment() {
-        let memory = MemorySnapshot(active: 10, inactive: 40, wired: 20, compressed: 30, purgeable: 0, free: 5)
+        let memory = MemorySnapshot(total: 110, active: 10, inactive: 40, wired: 20, compressed: 30, purgeable: 7, free: 5)
         let segments = memorySegments(for: memory)
         let kinds = Set(segments.map { $0.kind })
         expect(
@@ -54,7 +96,7 @@ enum MemoryTests {
             "every non-zero memory category the bar can draw must also appear in the legend's segment set"
         )
 
-        let zeroFree = MemorySnapshot(active: 10, inactive: 40, wired: 20, compressed: 30, purgeable: 0, free: 0)
+        let zeroFree = MemorySnapshot(total: 105, active: 10, inactive: 40, wired: 20, compressed: 30, purgeable: 7, free: 0)
         expect(
             !memorySegments(for: zeroFree).contains { $0.kind == .free },
             "a zero-value category should be omitted from both the bar and the legend, not just one"

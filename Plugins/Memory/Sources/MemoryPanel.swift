@@ -103,6 +103,8 @@ enum MemorySegmentKind: String, CaseIterable, Hashable {
     case compressed = "Compressed"
     case inactive = "Inactive"
     case free = "Free"
+    /// Pages the kernel holds outside every queue, so the bar still adds up to the machine's memory.
+    case other = "Other"
 }
 
 struct MemorySegment: Hashable {
@@ -113,14 +115,27 @@ struct MemorySegment: Hashable {
 /// Single source of truth for which memory categories are non-zero right now.
 /// MemoryBar and MemoryLegend both draw from this so they can't drift apart:
 /// every segment the bar can render also gets a name and value in the legend.
+///
+/// The segments add up to the total. Purgeable pages are not a segment: they already sit inside
+/// active and inactive. Speculative pages already sit inside free. What the kernel keeps outside
+/// every queue is the remainder, shown as Other. Counters are read a moment apart, so if they
+/// overshoot the total the later segments are trimmed rather than letting the bar overflow.
 func memorySegments(for memory: MemorySnapshot) -> [MemorySegment] {
-    [
-        MemorySegment(kind: .active, value: memory.active),
-        MemorySegment(kind: .wired, value: memory.wired),
-        MemorySegment(kind: .compressed, value: memory.compressed),
-        MemorySegment(kind: .inactive, value: memory.inactive),
-        MemorySegment(kind: .free, value: memory.free + memory.purgeable)
-    ].filter { $0.value > 0 }
+    let counted: [(MemorySegmentKind, UInt64)] = [
+        (.active, memory.active),
+        (.wired, memory.wired),
+        (.compressed, memory.compressed),
+        (.inactive, memory.inactive),
+        (.free, memory.free)
+    ]
+    var room = memory.total
+    var segments = counted.map { kind, value -> MemorySegment in
+        let shown = min(value, room)
+        room -= shown
+        return MemorySegment(kind: kind, value: shown)
+    }
+    segments.append(MemorySegment(kind: .other, value: room))
+    return segments.filter { $0.value > 0 }
 }
 
 func memorySegmentColor(_ kind: MemorySegmentKind) -> Color {
@@ -130,6 +145,7 @@ func memorySegmentColor(_ kind: MemorySegmentKind) -> Color {
     case .compressed: return Palette.purple
     case .inactive: return Palette.caution
     case .free: return Palette.good
+    case .other: return Palette.cyan
     }
 }
 
