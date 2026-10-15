@@ -73,7 +73,7 @@ Alongside direct kernel calls (`host_statistics`, `sysctl`, and friends) for CPU
 | Command | Used for | How often |
 |---|---|---|
 | `/bin/ps` | Process list, per-process CPU and memory | Every 10s while the Power, Memory or CPU tab is showing; also every 60s for the Dev tab, with arguments, to work out which project each process belongs to |
-| `/usr/sbin/ioreg` | How much system memory the GPU driver (`AGXAccelerator`) is using and has set aside, for the Memory tab's GPU memory figures; the GPU's device, renderer and tiler utilisation, for the CPU tab's GPU line | Every 30s for the Memory tab; every 1s while the CPU tab is showing |
+| `/usr/sbin/ioreg` | How much system memory the GPU driver (`AGXAccelerator`) is using and has set aside, for the Memory tab's GPU memory figures; the GPU's device, renderer and tiler utilisation, for the CPU tab's GPU line; the battery driver (`AppleSmartBattery`) for the Power tab's charge state, battery health, cycles, temperature, time remaining and power draw | Every 30s for the Memory tab; every 1s while the CPU tab is showing; every 60s while the Power tab is showing |
 | `/usr/bin/pmset` | Battery state and sleep assertions; thermal and performance warnings; the thermal speed limit | Every 60s for the Power and Dev tabs; every 10s while the CPU tab is showing |
 | `/usr/bin/nettop` | Per-process network throughput | Every 30s |
 | `/usr/sbin/lsof` | Active TCP connections; listening ports for the Dev tab; working directories of running build/test/bundler processes, to name the project each belongs to | Every 30–60s |
@@ -100,7 +100,7 @@ Each interval lives in that tab's plugin, next to the code that uses it. The Dis
 
 | Tab | Its own sampling | While hidden | Where the number lives |
 |---|---|---|---|
-| Power | `pmset` every 60s | — | `PowerPlugin.refreshInterval` |
+| Power | `pmset` and `ioreg` every 60s | — | `PowerPlugin.refreshInterval` |
 | Dev | `ps`, `lsof`, `pmset` and two usage reads a second apart, every 60s | — | `DevSampling` in `Plugins/Dev/Sources/CapacityModels.swift` |
 | Memory | Kernel counters and pressure level every 3s; `ioreg` every 30s; a graph point about every 10s | A kernel read every 10s, so the pressure graph is full on open | `MemorySampling` in `Plugins/Memory/Sources/MemoryModels.swift` |
 | Disk | Volumes and `tmutil` every 30s; the read/write graph's counters read in process through IOKit (no subprocess) every second; the overview scan every 3 h and the developer and simulator scans every 6 h, each folder one `du` capped at 5 min and each plan at 15 min | A due check every 15 min, unless `"backgroundScans": false`; the graph's read every 5 s, so it is full on open | `DiskSampling` in `Plugins/Disk/Sources/DiskModels.swift` |
