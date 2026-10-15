@@ -142,7 +142,7 @@ struct NetworkPanel: View {
 }
 
 /// The Wi-Fi link: a verdict from signal minus noise, the figures behind it, and band, channel
-/// and rate. Not shown on Ethernet.
+/// and rate. Not shown when Wi-Fi is off or not joined to a network.
 struct WiFiCard: View {
     let signal: WiFiSignal
 
