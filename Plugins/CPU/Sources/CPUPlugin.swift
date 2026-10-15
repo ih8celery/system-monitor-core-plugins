@@ -5,7 +5,7 @@ import SystemBarKit
 
 /// The CPU tab as a bundle. The headline, graph, cluster bars and user/system split follow the
 /// host's 1-second feed and the list follows its process feed. `collect()` reads what the feed
-/// does not carry (load average, thermal state, `pmset -g therm`) every ten seconds while the
+/// does not carry (load averages, uptime, thermal state, `pmset -g therm`) every ten seconds while the
 /// tab is showing, and again whenever macOS says the thermal state changed while it is showing.
 /// The one other command it runs is a `ps` when a row is tapped, which the panel calls off the
 /// main thread.
@@ -75,7 +75,7 @@ public final class CPUPlugin: NSObject, TabPlugin, ObservableObject {
         if isVisible { observeThermalChanges() } else { stopObservingThermalChanges() }
     }
 
-    /// Reads the load average, thermal state and pmset's speed limit, and publishes them on the
+    /// Reads the load averages, uptime, thermal state and pmset's speed limit, and publishes them on the
     /// main thread, where the panel observes them. A reading older than the one showing is
     /// dropped, because the thermal observer can run a collect alongside the scheduled one.
     public func collect() {
