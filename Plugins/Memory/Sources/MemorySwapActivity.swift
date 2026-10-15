@@ -19,11 +19,23 @@ struct SwapHistory {
     }
 
     private var samples: [Sample] = []
+    /// How long a sample is kept; the swap line reads the last minute, the swap rule its own minutes.
+    let window: TimeInterval
+
+    init(window: TimeInterval = MemorySampling.swapWindow) {
+        self.window = window
+    }
+
+    /// How much time the kept samples cover, so a rule can tell a full window from a short one.
+    var span: TimeInterval {
+        guard let oldest = samples.first, let newest = samples.last else { return 0 }
+        return newest.at.timeIntervalSince(oldest.at)
+    }
 
     /// A copy with one more sample, and everything a window older than it dropped.
     func recording(_ memory: MemorySnapshot, at date: Date) -> SwapHistory {
-        let cutoff = date.addingTimeInterval(-MemorySampling.swapWindow)
-        var next = SwapHistory()
+        let cutoff = date.addingTimeInterval(-window)
+        var next = SwapHistory(window: window)
         next.samples = samples.filter { $0.at >= cutoff }
             + [Sample(at: date, ins: memory.swapInsTotal, outs: memory.swapOutsTotal)]
         return next

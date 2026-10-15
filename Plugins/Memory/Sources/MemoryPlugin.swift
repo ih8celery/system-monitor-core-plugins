@@ -19,10 +19,22 @@ public final class MemoryPlugin: NSObject, TabPlugin, ObservableObject {
     @Published private(set) var stats = MemoryStatsSnapshot()
     @Published private(set) var processes = ProcessSummary()
     private let collector: MemoryCollector
+    private let host: HostServices
+    /// What the notification rules remember. Touched only by `collect`, which the host calls one at a time.
+    private var alerts: MemoryAlertRules
     private var feedSubscription: AnyCancellable?
 
-    @MainActor public init(host: HostServices) {
-        collector = MemoryCollector(host: host)
+    @MainActor public convenience init(host: HostServices) {
+        self.init(host: host, kernelPressureLevel: MemoryCollector.readKernelPressureLevel)
+    }
+
+    /// The kernel's pressure level is a parameter so a test can walk it through the levels.
+    @MainActor init(host: HostServices, kernelPressureLevel: @escaping () -> Int32?) {
+        collector = MemoryCollector(host: host, kernelPressureLevel: kernelPressureLevel)
+        self.host = host
+        let parsed = MemoryAlertConfig.parse(host.settings)
+        parsed.problems.forEach { host.log($0) }
+        alerts = MemoryAlertRules(config: parsed.config)
         super.init()
         processes = host.processes.value
         feedSubscription = host.processes.publisher.sink { [weak self] summary in
@@ -32,6 +44,9 @@ public final class MemoryPlugin: NSObject, TabPlugin, ObservableObject {
 
     public func collect() {
         let reading = collector.sample()
+        let result = alerts.evaluating(reading)
+        alerts = result.rules
+        result.notifications.forEach { host.notify(id: $0.id, title: $0.title, body: $0.body) }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.stats = self.stats.recording(reading)

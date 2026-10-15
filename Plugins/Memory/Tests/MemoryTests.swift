@@ -30,6 +30,7 @@ enum MemoryTests {
         testSwapActivityForgetsWhatIsOlderThanAMinute()
         testSwapCounterResetShowsNothing()
         MemoryHistoryTests.runAll()
+        MemoryAlertTests.runAll()
     }
 
     private static func testSwapStatText() {
