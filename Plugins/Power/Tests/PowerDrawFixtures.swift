@@ -33,12 +33,25 @@ enum PowerDrawFixtures {
         extraKeys: Power(voltage: 12497, amperage: 0, adapterWatts: 94, systemPowerIn: 46496, systemLoad: 46496, batteryPower: 0).xml
     )
 
-    /// On the charger and charging. Not captured: the Mac was on battery when this was written.
-    /// The captured AC shape with the battery taking 2 A at 12.3 V (24.6 W) out of 70 W in.
-    static let acCharging = PowerFixtures.ioreg(
-        external: true, fullyCharged: false, charging: true, capacity: 54, notChargingReason: 0,
-        extraKeys: Power(voltage: 12300, amperage: 2000, adapterWatts: 94, systemPowerIn: 70000, systemLoad: 70000, batteryPower: -24600).xml
-    )
+    /// On the 94 W charger and charging at 20%, captured by the coordinator on 2026-10-14 at
+    /// 21:11 with `ioreg -rn AppleSmartBattery -a`, over a minute after charging began so the
+    /// telemetry had caught up (log: battery-probe.txt in the coordinator's run folder).
+    /// SystemPowerIn includes the charge current: SystemVoltageIn 19556 mV x SystemCurrentIn
+    /// 3975 mA is the same 77.7 W. The telemetry's BatteryPower reads -6.2 W while the battery
+    /// takes +50.2 W, and SystemLoad 83.9 W; the collector uses neither.
+    static let acCharging = acChargingWith(systemLoad: 83935, batteryPower: -6199)
+
+    /// The charging capture with its telemetry battery and load figures replaced.
+    static func acChargingWith(systemLoad: Int, batteryPower: Int) -> String {
+        PowerFixtures.ioreg(
+            external: true, fullyCharged: false, charging: true, capacity: 20, notChargingReason: 0,
+            rawMaxCapacity: 6240, cycleCount: 25, temperature: 3092, timeRemaining: 137,
+            extraKeys: Power(
+                voltage: 11529, amperage: 4356, adapterWatts: 94,
+                systemPowerIn: 77736, systemLoad: systemLoad, batteryPower: batteryPower
+            ).xml
+        )
+    }
 
     /// Unplugged and settled, 20:37: the telemetry reads -12.1 W while the battery gives 48.4 W.
     static let onBattery = PowerFixtures.ioreg(
