@@ -34,6 +34,19 @@ struct CPUPanel: View {
                 Sparkline(values: plugin.fastStats.cpuHistory, maxValue: 100, color: accentColor, fill: true)
                     .frame(height: 96)
 
+                if let gpu = plugin.gpuReading {
+                    HStack {
+                        SectionTitle("GPU")
+                        Spacer()
+                        ChartUnitLabel("% device - last 90s")
+                    }
+                    Text(gpu.line)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Sparkline(values: plugin.gpuHistory, maxValue: 100, color: accentColor, fill: true)
+                        .frame(height: 48)
+                }
+
                 MachineStateView(
                     clusters: plugin.clusters,
                     fastStats: plugin.fastStats,
