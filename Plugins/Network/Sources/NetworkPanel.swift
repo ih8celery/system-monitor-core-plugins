@@ -9,12 +9,14 @@ struct NetworkPanel: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
-                    RateCard(title: "Down", value: networkRateText(plugin.fastStats.currentDownloadRate), color: Palette.blue)
-                    RateCard(title: "Up", value: networkRateText(plugin.fastStats.currentUploadRate), color: Palette.tangerine)
+                    RateCardWithTotal(title: "Down", rate: plugin.fastStats.currentDownloadRate, total: plugin.fastStats.bytesReceivedSinceBoot, color: Palette.blue)
+                    RateCardWithTotal(title: "Up", rate: plugin.fastStats.currentUploadRate, total: plugin.fastStats.bytesSentSinceBoot, color: Palette.tangerine)
                 }
 
                 if let wifi = plugin.wifi {
+                    // Its full height: the destinations list below takes what space is left.
                     WiFiCard(signal: wifi)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 HStack(spacing: 10) {
@@ -200,6 +202,33 @@ struct SpeedTestMetric: View {
     }
 }
 
+
+/// A rate card with the direction's total since the Mac started up beneath it, once the host has
+/// read the counters.
+struct RateCardWithTotal: View {
+    let title: String
+    let rate: Double
+    let total: UInt64
+    let color: Color
+    /// RateCard's own padding, so the total lines up with the card's title.
+    private static let cardInset: CGFloat = 12
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Its full height: the destinations list below takes what space is left.
+            RateCard(title: title, value: networkRateText(rate), color: color)
+                .fixedSize(horizontal: false, vertical: true)
+            if let text = sinceStartupText(total) {
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .padding(.leading, Self.cardInset)
+                    .help(sinceStartupHelp)
+            }
+        }
+    }
+}
 
 struct NetworkProcessList: View {
     let rows: [NetworkProcessSnapshot]
