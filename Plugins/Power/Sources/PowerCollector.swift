@@ -53,7 +53,7 @@ enum PowerCollector {
         rows.prefix(5).map { row in
             PowerContributor(
                 name: row.name,
-                evidence: "\(percentString(machineCPUPercent(row.cpu))) CPU, \(byteString(row.physical)) memory"
+                evidence: "\(percentString(machineCPUPercent(row.cpu))) CPU, \(memoryByteString(row.physical)) memory"
             )
         }
     }

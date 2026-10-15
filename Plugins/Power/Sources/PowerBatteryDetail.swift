@@ -52,11 +52,16 @@ func batteryHealthLabel(_ percent: Int) -> String {
     "\(percent)%"
 }
 
-func batteryTemperatureLabel(_ celsius: Double) -> String {
-    String(format: "%.1f °C", celsius)
+/// In the unit the person's locale prefers (°F in the US), to one decimal at most.
+func batteryTemperatureLabel(_ celsius: Double, locale: Locale = .current) -> String {
+    let formatter = MeasurementFormatter()
+    formatter.locale = locale
+    formatter.numberFormatter.maximumFractionDigits = 1
+    return formatter.string(from: Measurement(value: celsius, unit: UnitTemperature.celsius))
 }
 
-/// Hours and minutes, as pmset writes them. No estimate reads "Calculating…", never 0:00.
+/// Hours and minutes, as pmset writes them and as macOS's own battery menu shows the estimate,
+/// so it stays h:mm rather than a localised duration. No estimate reads "Calculating…", never 0:00.
 func timeRemainingLabel(minutes: Int?) -> String {
     guard let minutes else { return "Calculating…" }
     return String(format: "%d:%02d", minutes / 60, minutes % 60)

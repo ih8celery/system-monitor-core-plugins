@@ -102,6 +102,7 @@ enum PowerTests {
         let contributors = PowerCollector.contributors(from: rows)
         expect(contributors.map(\.name) == ["clang", "idle"], "contributors are the feed's top CPU rows in order")
         expect(contributors[0].evidence.contains("CPU") && contributors[0].evidence.contains("memory"), "each contributor says why, got \(contributors[0].evidence)")
+        expect(contributors[0].evidence.hasSuffix("\(memoryByteString(2_000_000)) memory"), "memory is counted the way Activity Monitor counts it, got \(contributors[0].evidence)")
     }
 
     /// ps reports CPU per core, so a busy process can read 240%. The CPU tab's top-CPU row shows
