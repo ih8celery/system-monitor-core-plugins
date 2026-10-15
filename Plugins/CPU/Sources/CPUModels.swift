@@ -76,19 +76,57 @@ enum CPUThermal {
     }
 }
 
+/// The 1, 5 and 15-minute load averages: runnable threads, so "6.2 of 18 cores" reads as how many
+/// cores could have been kept busy.
+struct LoadAverages: Equatable {
+    let one: Double
+    let five: Double
+    let fifteen: Double
+
+    static let zero = LoadAverages(one: 0, five: 0, fifteen: 0)
+}
+
+/// How the machine-state column words its figures.
+enum CPUFormat {
+    private static let secondsPerMinute = 60
+    private static let secondsPerHour = 3_600
+    private static let secondsPerDay = 86_400
+
+    /// "load 6.2 · 5.1 · 4.0 of 18 cores": 1, 5 and 15 minutes against the core count.
+    static func loadLine(_ loads: LoadAverages, coreCount: Int) -> String {
+        let figures = [loads.one, loads.five, loads.fifteen].map { String(format: "%.1f", $0) }
+        return "load \(figures.joined(separator: " · ")) of \(coreCount) \(coreCount == 1 ? "core" : "cores")"
+    }
+
+    /// The two largest units, whole: "up 3d 4h", "up 4h 12m", "up 12m". A negative interval (the
+    /// clock stepped back) reads as just booted rather than as a minus sign.
+    static func uptime(_ seconds: TimeInterval) -> String {
+        let total = Int(max(0, seconds))
+        if total >= secondsPerDay {
+            return "up \(total / secondsPerDay)d \(total % secondsPerDay / secondsPerHour)h"
+        }
+        if total >= secondsPerHour {
+            return "up \(total / secondsPerHour)h \(total % secondsPerHour / secondsPerMinute)m"
+        }
+        if total >= secondsPerMinute { return "up \(total / secondsPerMinute)m" }
+        return "up under a minute"
+    }
+}
+
 /// What the left column says beyond the headline and the feed: read every
 /// `CPUSampling.refreshInterval` while the tab is showing, and on every thermal-state change.
 struct MachineState: Equatable {
-    /// The 1-minute load average: runnable threads, so "6.2 of 18 cores" reads as how many
-    /// cores could have been kept busy.
-    let loadAverage: Double
+    let loads: LoadAverages
+    /// Seconds since boot, or nil when the kernel would not say.
+    let uptime: TimeInterval?
     let coreCount: Int
     let thermal: ThermalReading
     let sampledAt: Date
 
     /// Before the first collect: the view hides the load line while `coreCount` is 0.
     static let empty = MachineState(
-        loadAverage: 0,
+        loads: .zero,
+        uptime: nil,
         coreCount: 0,
         thermal: ThermalReading(state: .nominal, speedLimitPercent: nil),
         sampledAt: .distantPast

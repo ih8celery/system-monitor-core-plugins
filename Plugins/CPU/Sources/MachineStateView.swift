@@ -2,8 +2,8 @@ import SwiftUI
 import SystemBarKit
 
 /// The left column under the history: one bar per cluster (or one thin bar per core when the
-/// clusters are unknown), the user/system split, the load average against the core count, and
-/// the thermal line when it has something to say.
+/// clusters are unknown), the user/system split, the three load averages against the core count,
+/// uptime, and the thermal line when it has something to say.
 struct MachineStateView: View {
     let clusters: [CPUCluster]?
     let fastStats: FastStatsSnapshot
@@ -27,7 +27,13 @@ struct MachineStateView: View {
             UserSystemBar(user: fastStats.cpuUserPercent, system: fastStats.cpuSystemPercent, accent: accent)
 
             if state.coreCount > 0 {
-                Text("load \(String(format: "%.1f", state.loadAverage)) of \(state.coreCount) cores")
+                Text(CPUFormat.loadLine(state.loads, coreCount: state.coreCount))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let uptime = state.uptime {
+                Text(CPUFormat.uptime(uptime))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

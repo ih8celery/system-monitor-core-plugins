@@ -15,6 +15,9 @@ enum CPUTests {
         testClusterLayoutPutsTheSlowestClusterAtCoreZero()
         testClusterUsageIsTheMeanOfItsCores()
         testThermalSpeedLimitParsing()
+        testLoadLineFormatting()
+        testUptimeFormatting()
+        testBootTimeIsReadFromTheKernel()
         testMachineStateRunsPmsetThroughTheHost()
         testClustersOnThisMacCoverEveryCore()
         testCollectPublishesTheMachineState()
@@ -215,6 +218,37 @@ enum CPUTests {
         expect(!ThermalReading(state: .nominal, speedLimitPercent: 80).isNominal, "and so is a speed limit under 100")
     }
 
+    private static func testLoadLineFormatting() {
+        let loads = LoadAverages(one: 6.24, five: 5.06, fifteen: 3.999)
+        expect(CPUFormat.loadLine(loads, coreCount: 18) == "load 6.2 · 5.1 · 4.0 of 18 cores", "all three averages to one decimal against the core count, got \(CPUFormat.loadLine(loads, coreCount: 18))")
+        expect(CPUFormat.loadLine(LoadAverages(one: 0, five: 0, fifteen: 0), coreCount: 8) == "load 0.0 · 0.0 · 0.0 of 8 cores", "an idle machine still shows the line")
+        expect(CPUFormat.loadLine(loads, coreCount: 1) == "load 6.2 · 5.1 · 4.0 of 1 core", "one core is singular")
+    }
+
+    private static func testUptimeFormatting() {
+        let cases: [(TimeInterval, String)] = [
+            (0, "up under a minute"), (59, "up under a minute"), (60, "up 1m"), (59 * 60 + 59, "up 59m"),
+            (3_600, "up 1h 0m"), (4 * 3_600 + 12 * 60, "up 4h 12m"), (86_399, "up 23h 59m"),
+            (86_400, "up 1d 0h"), (3 * 86_400 + 4 * 3_600 + 59 * 60, "up 3d 4h"),
+        ]
+        for (seconds, want) in cases {
+            let got = CPUFormat.uptime(seconds)
+            expect(got == want, "uptime \(seconds)s reads \"\(want)\", got \"\(got)\"")
+        }
+        expect(CPUFormat.uptime(-5) == "up under a minute", "a clock that stepped back reads as just booted, not a negative")
+    }
+
+    private static func testBootTimeIsReadFromTheKernel() {
+        let now = Date()
+        guard let boot = CPUCollector.bootTime() else {
+            expect(false, "kern.boottime is always readable")
+            return
+        }
+        expect(boot < now && now.timeIntervalSince(boot) < 3_650 * 86_400, "the Mac booted before now and within ten years, got \(boot)")
+        expect(CPUCollector.uptime(bootedAt: Date(timeIntervalSince1970: 1_000), now: Date(timeIntervalSince1970: 1_090)) == 90, "uptime is now minus boot")
+        expect(CPUCollector.uptime(bootedAt: nil, now: now) == nil, "no boot time means no uptime, not a guess")
+    }
+
     private static func testMachineStateRunsPmsetThroughTheHost() {
         let recorder = LogRecorder()
         let command = "/usr/bin/pmset -g therm"
@@ -223,7 +257,9 @@ enum CPUTests {
         let state = CPUCollector.machineState(using: host, now: Date(timeIntervalSince1970: 1_000))
         expect(recorder.messages == [command], "one pmset, through the host, by explicit path, got \(recorder.messages)")
         expect(state.thermal.speedLimitPercent == 80, "the speed limit comes from pmset, got \(String(describing: state.thermal.speedLimitPercent))")
-        expect(state.coreCount == ProcessInfo.processInfo.activeProcessorCount && state.loadAverage >= 0, "the core count and load average come from the kernel, got \(state.coreCount) and \(state.loadAverage)")
+        expect(state.coreCount == ProcessInfo.processInfo.activeProcessorCount && state.loads.one >= 0 && state.loads.five >= 0 && state.loads.fifteen >= 0, "the core count and load averages come from the kernel, got \(state.coreCount) and \(state.loads)")
+        let live = CPUCollector.machineState(using: host)
+        expect((live.uptime ?? 0) > 0, "uptime comes from the kernel's boot time, got \(String(describing: live.uptime))")
         expect(state.sampledAt == Date(timeIntervalSince1970: 1_000), "the reading carries the time it was taken")
 
         let failing = CPUCollector.machineState(using: makeHost(runner: recordingRunner(LogRecorder(), answers: [:])))

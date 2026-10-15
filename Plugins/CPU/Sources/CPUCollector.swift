@@ -3,7 +3,7 @@ import Foundation
 import SystemBarKit
 
 /// The CPU tab's own reads: the chip's clusters from sysctl (once; a chip does not change), and
-/// the load average, thermal state and `pmset -g therm` on every collect while showing.
+/// the load averages, uptime, thermal state and `pmset -g therm` on every collect while showing.
 enum CPUCollector {
     static let pmsetPath = "/usr/bin/pmset"
     static let pmsetArguments = ["-g", "therm"]
@@ -24,23 +24,42 @@ enum CPUCollector {
     }
 
     /// One reading of what the feed does not carry. `pmset` goes through the host so a test can
-    /// answer it; the load average and thermal state are kernel calls that cannot usefully fail.
+    /// answer it; the load averages, boot time and thermal state are kernel calls that cannot usefully fail.
     static func machineState(using host: HostServices, now: Date = Date()) -> MachineState {
         let therm = host.run(path: pmsetPath, arguments: pmsetArguments)
         let speedLimit = therm.status == 0 ? CPUThermal.parseSpeedLimit(therm.output) : nil
         return MachineState(
-            loadAverage: loadAverage(),
+            loads: loadAverages(),
+            uptime: uptime(bootedAt: bootTime(), now: now),
             coreCount: ProcessInfo.processInfo.activeProcessorCount,
             thermal: ThermalReading(state: ProcessInfo.processInfo.thermalState, speedLimitPercent: speedLimit),
             sampledAt: now
         )
     }
 
-    /// The 1-minute load average, or 0 if the kernel will not say.
-    static func loadAverage() -> Double {
+    /// The 1, 5 and 15-minute load averages; all zero if the kernel will not say, and any average
+    /// it returns fewer than three of reads 0.
+    static func loadAverages() -> LoadAverages {
         var loads = [Double](repeating: 0, count: 3)
-        guard getloadavg(&loads, 3) >= 1 else { return 0 }
-        return loads[0]
+        let filled = getloadavg(&loads, 3)
+        guard filled >= 1 else { return .zero }
+        return LoadAverages(
+            one: loads[0],
+            five: filled >= 2 ? loads[1] : 0,
+            fifteen: filled >= 3 ? loads[2] : 0
+        )
+    }
+
+    /// When the Mac booted, from `kern.boottime`, or nil when the kernel will not say.
+    static func bootTime() -> Date? {
+        var boot = timeval()
+        var size = MemoryLayout<timeval>.size
+        guard sysctlbyname("kern.boottime", &boot, &size, nil, 0) == 0, boot.tv_sec > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(boot.tv_sec))
+    }
+
+    static func uptime(bootedAt boot: Date?, now: Date) -> TimeInterval? {
+        boot.map { now.timeIntervalSince($0) }
     }
 
     /// These are 32-bit `CTLTYPE_INT` values, so `Int32` is the right size; do not widen it to `Int`.
