@@ -132,6 +132,7 @@ enum DiskLowSpaceTests {
         settings: PluginSettings,
         directory: URL,
         plans: [DiskScanPlan] = [],
+        log: @escaping @Sendable (String) -> Void = { _ in },
         runner: @escaping CommandRunner = { _, _, _, _ in CommandOutput(output: "", error: "", status: 0, didTimeout: false) },
         notify: @escaping @Sendable (PluginNotification) -> Void
     ) -> DiskPlugin {
@@ -140,7 +141,7 @@ enum DiskLowSpaceTests {
             processes: Feed(initial: ProcessSummary()),
             fastStats: Feed(initial: FastStatsSnapshot()),
             runner: runner,
-            log: { _ in },
+            log: log,
             settings: settings,
             dataDirectory: directory,
             notify: notify
@@ -190,7 +191,13 @@ enum DiskLowSpaceTests {
     private static func testThePluginReportsABadLimitInTheFooter() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let plugin = makePlugin(settings: settings(.string("lots")), directory: directory, notify: { _ in })
+        let log = LogRecorder()
+        let plugin = makePlugin(settings: settings(.string("lots")), directory: directory, log: { log.record($0) }, notify: { _ in })
         expect(plugin.snapshot.settingsProblem?.contains(DiskLowSpaceRule.limitKey) == true, "a misspelt limit must never silently do nothing, got \(String(describing: plugin.snapshot.settingsProblem))")
+        expect(log.messages.count == 1 && log.messages[0].hasPrefix("SystemBar Disk: ") && log.messages[0].contains(DiskLowSpaceRule.limitKey), "and it is logged too, as the other tabs do, got \(log.messages)")
+
+        let quiet = LogRecorder()
+        _ = makePlugin(settings: settings(.number(5)), directory: directory, log: { quiet.record($0) }, notify: { _ in })
+        expect(quiet.messages.isEmpty, "a good limit logs nothing, got \(quiet.messages)")
     }
 }

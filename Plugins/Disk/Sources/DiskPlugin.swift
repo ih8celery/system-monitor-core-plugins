@@ -90,6 +90,7 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
         var initial = DiskSnapshot()
         initial.settingsProblem = [setting.problem, limit.problem].compactMap { $0 }.joined(separator: "; ").nilIfEmpty
         snapshot = initial
+        if let problem = initial.settingsProblem { host.log("SystemBar Disk: \(problem)") }
         super.init()
         // The saved rows show as soon as the plugin exists, not at the first collect, which with
         // the tab hidden is a background interval away.
