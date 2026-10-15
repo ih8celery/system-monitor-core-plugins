@@ -15,6 +15,7 @@ enum PowerChargeLimitTests {
         testAGarbledFileHasNoLimit()
         testAPlistWithoutPoliciesHasNoLimit()
         testOnlyTheManualChargeLimitPolicyCounts()
+        testATerminatedPolicyIsNoLimit()
         testAnImpossibleOrMistypedLimitIsNoLimit()
         testAnArchiveOfAnotherClassIsRefused()
         testTheMarkerShowsOnlyBelowOneHundred()
@@ -62,7 +63,8 @@ enum PowerChargeLimitTests {
     private static func testAPlistWithoutPoliciesHasNoLimit() {
         expect(PowerCollector.parseChargeLimit(plist(["bootSessionUUID": "x"])) == nil, "no policies key means no limit")
         expect(PowerCollector.parseChargeLimit(plist(["policies": "not data"])) == nil, "policies that are not an archive mean no limit")
-        expect(PowerCollector.parseChargeLimit(chargingPlist([])) == nil, "no policies at all means no limit")
+        // The live file on this Mac held an empty list once the limit was lifted.
+        expect(PowerCollector.parseChargeLimit(chargingPlist([])) == nil, "an empty policies list means no limit")
     }
 
     private static func testOnlyTheManualChargeLimitPolicyCounts() {
@@ -70,6 +72,16 @@ enum PowerChargeLimitTests {
         expect(PowerCollector.parseChargeLimit(chargingPlist([other])) == nil, "a policy for another reason is not the user's limit")
         let manual = TestPolicy(reason: "manualChargeLimit", socLimit: 90)
         expect(PowerCollector.parseChargeLimit(chargingPlist([other, manual])) == 90, "the manual limit is found among others")
+    }
+
+    /// powerd can leave an ended policy in the list with terminated = true.
+    private static func testATerminatedPolicyIsNoLimit() {
+        let ended = TestPolicy(reason: "manualChargeLimit", socLimit: 80, terminated: true)
+        expect(PowerCollector.parseChargeLimit(chargingPlist([ended])) == nil, "a terminated manual policy is no limit")
+        let live = TestPolicy(reason: "manualChargeLimit", socLimit: 90, terminated: false)
+        expect(PowerCollector.parseChargeLimit(chargingPlist([ended, live])) == 90, "the live policy wins over an ended one")
+        let mistyped = TestPolicy(reason: "manualChargeLimit", socLimit: 80, terminated: "no")
+        expect(PowerCollector.parseChargeLimit(chargingPlist([mistyped])) == nil, "a terminated flag of the wrong type is no limit")
     }
 
     private static func testAnImpossibleOrMistypedLimitIsNoLimit() {
@@ -107,16 +119,18 @@ enum PowerChargeLimitTests {
 }
 
 /// Stands in for powerd's ChargeCtrlPolicy when building archives: it writes `reason` and
-/// whatever `soclimit` a test gives, including a wrong type.
+/// whatever `soclimit` and `terminated` a test gives, including a wrong type.
 @objc(SystemBarPowerTestChargePolicy)
 private final class TestPolicy: NSObject, NSSecureCoding {
     static var supportsSecureCoding: Bool { true }
     let reason: String
     let socLimit: Any?
+    let terminated: Any?
 
-    init(reason: String, socLimit: Any?) {
+    init(reason: String, socLimit: Any?, terminated: Any? = false) {
         self.reason = reason
         self.socLimit = socLimit
+        self.terminated = terminated
     }
 
     init?(coder: NSCoder) { nil }
@@ -127,6 +141,11 @@ private final class TestPolicy: NSObject, NSSecureCoding {
             coder.encode(number, forKey: "soclimit")
         } else if let text = socLimit as? String {
             coder.encode(text, forKey: "soclimit")
+        }
+        if let flag = terminated as? Bool {
+            coder.encode(flag, forKey: "terminated")
+        } else if let text = terminated as? String {
+            coder.encode(text, forKey: "terminated")
         }
     }
 }
