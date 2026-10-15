@@ -1,0 +1,7 @@
+# Coordinated execution settings (see ~/proj/agent-workflow/specs/shared/worker-config.md).
+# Builders run Opus or Sonnet; the coordinator picks the model per lane by swapping --model.
+worker_command: "env -u ANTHROPIC_API_KEY claude --permission-mode auto --model opus"
+max_workers: 6
+merge_policy: coordinator
+merge_requires_approval: true
+worker_timeout_minutes: 45
