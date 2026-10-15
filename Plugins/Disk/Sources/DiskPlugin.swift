@@ -59,6 +59,10 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     /// cleared on `scanQueue`, so it sits behind a lock rather than on one queue.
     private let forcedRunLock = NSLock()
     private var isForcedRunQueued = false
+    /// The free-space rule and what it last saw. `collect()` is the only caller, one at a time,
+    /// but the lock keeps that from being an unwritten assumption.
+    private let lowSpaceLock = NSLock()
+    private var lowSpaceRule: DiskLowSpaceRule
 
     @MainActor public convenience init(host: HostServices) {
         self.init(host: host, plans: DiskScanPlan.all, now: { Date() }, listChildren: DiskScanner.subfolders(of:), activity: .standard)
@@ -75,9 +79,11 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
         self.plans = plans
         self.now = now
         let setting = Self.backgroundScansSetting(host.settings)
+        let limit = DiskLowSpaceRule.limit(from: host.settings)
+        lowSpaceRule = DiskLowSpaceRule(limitBytes: limit.bytes)
         backgroundInterval = setting.isEnabled ? DiskSampling.backgroundInterval : nil
         var initial = DiskSnapshot()
-        initial.settingsProblem = setting.problem
+        initial.settingsProblem = [setting.problem, limit.problem].compactMap { $0 }.joined(separator: "; ").nilIfEmpty
         snapshot = initial
         super.init()
         // The saved rows show as soon as the plugin exists, not at the first collect, which with
@@ -99,7 +105,18 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     public func collect() {
         let reading = collector.readVolumes()
         publish { $0.applying(reading) }
+        checkLowSpace(reading.volumes.first(where: \.isRoot))
         requestScan(force: false)
+    }
+
+    /// Runs the free-space rule on the boot volume and hands any notification to the host.
+    private func checkLowSpace(_ boot: DiskVolume?) {
+        let notification = lowSpaceLock.withLock { () -> PluginNotification? in
+            let step = lowSpaceRule.checking(boot)
+            lowSpaceRule = step.rule
+            return step.notification
+        }
+        if let notification { host.notify(id: notification.id, title: notification.title, body: notification.body) }
     }
 
     /// The panel's rescan button passes `force: true`; every collect asks without forcing. Runs
@@ -273,4 +290,8 @@ struct ActivitySampling {
         visibleInterval: DiskSampling.activityVisibleInterval,
         hiddenInterval: DiskSampling.activityHiddenInterval
     )
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
