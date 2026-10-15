@@ -13,6 +13,10 @@ struct NetworkPanel: View {
                     RateCard(title: "Up", value: rateString(plugin.fastStats.currentUploadRate), color: Palette.tangerine)
                 }
 
+                if let wifi = plugin.wifi {
+                    WiFiCard(signal: wifi)
+                }
+
                 HStack(spacing: 10) {
                     Spacer(minLength: 0)
                     ChartUnitLabel("B/s - last 90s")
@@ -130,6 +134,47 @@ struct NetworkPanel: View {
 
     private func serviceLabel(_ destination: NetworkDestination) -> String {
         NetworkCollector.serviceLabel(endpoint: destination.endpoint)
+    }
+}
+
+/// The Wi-Fi link: a verdict from signal minus noise, the figures behind it, and band, channel
+/// and rate. Not shown on Ethernet.
+struct WiFiCard: View {
+    let signal: WiFiSignal
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                SectionTitle("Wi-Fi")
+                Spacer()
+                if let verdict = signal.verdict {
+                    Text(verdict.label)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(color(verdict))
+                }
+            }
+            Text(signal.signalText)
+                .font(.system(size: 11, design: .monospaced))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            if !signal.linkText.isEmpty {
+                Text(signal.linkText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(10)
+        .background(Color.white.opacity(0.055))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func color(_ verdict: WiFiVerdict) -> Color {
+        switch verdict {
+        case .good: Palette.good
+        case .fair: Palette.caution
+        case .poor: Palette.critical
+        }
     }
 }
 
