@@ -7,13 +7,15 @@ enum PingOutcome: Equatable, Sendable {
     case reply(milliseconds: Double)
     case timeout
     case failed(String)
+    /// The kernel refused the send at once: it has no IPv4 route to the address.
+    case noRoute(String)
 }
 
 /// Sends one ping to an IPv4 address and waits no longer than the timeout.
 typealias Pinger = @Sendable (_ address: String, _ timeout: TimeInterval) -> PingOutcome
 
-/// One line's point on the latency graph. `unknown` means no ping was sent, because there was no
-/// IPv4 default route: a gap in the line, not a failure.
+/// One line's point on the latency graph. `unknown` is a gap, not a failure: the router line when
+/// no router was found, and the internet line too when the kernel had no IPv4 route to send on.
 enum LatencyPoint: Equatable, Sendable {
     case reply(Double)
     case failed(String)
@@ -23,7 +25,7 @@ enum LatencyPoint: Equatable, Sendable {
         switch outcome {
         case .reply(let milliseconds): self = .reply(milliseconds)
         case .timeout: self = .failed("timed out")
-        case .failed(let reason): self = .failed(reason)
+        case .failed(let reason), .noRoute(let reason): self = .failed(reason)
         }
     }
 
@@ -129,11 +131,16 @@ enum LatencySettings {
 }
 
 /// One round: the router and the internet, pinged at the same time, so two silent targets cost
-/// one timeout. With no router there is no IPv4 default route, and a ping to the internet could
-/// only fail at once (an IPv6-only network, or none), so nothing is sent and both are unknown.
+/// one timeout. With no router found the internet is still pinged, because a full-tunnel VPN can
+/// route IPv4 with no gateway address; only the kernel refusing that send for want of a route (an
+/// IPv6-only network, or none) makes the internet line unknown rather than failed.
 enum LatencyProbe {
     static func measure(router: String?, internet: String, at: Date, timeout: TimeInterval = NetworkSampling.pingTimeout, ping: Pinger) -> LatencySample {
-        guard let router else { return LatencySample(at: at, router: .unknown, internet: .unknown) }
+        guard let router else {
+            let outcome = ping(internet, timeout)
+            if case .noRoute = outcome { return LatencySample(at: at, router: .unknown, internet: .unknown) }
+            return LatencySample(at: at, router: .unknown, internet: LatencyPoint(outcome))
+        }
         let targets = [router, internet]
         let results = PingResults(count: targets.count)
         DispatchQueue.concurrentPerform(iterations: targets.count) { index in

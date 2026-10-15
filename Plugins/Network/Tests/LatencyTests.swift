@@ -15,7 +15,10 @@ enum NetworkLatencyTests {
         testDefaultGatewayFromTheRoutingTable()
         testPingAddressSetting()
         testProbeRecordsRepliesAndFailures()
-        testProbeWithoutAnIPv4RoutePingsNothing()
+        testNoRouterStillPingsTheInternet()
+        testNoRouterAndNoIPv4RouteIsUnknown()
+        testNoRouterAndATimeoutIsAFailure()
+        testNoRouteWithARouterIsAFailure()
         testProbePingsBothAtOnce()
         testNotesShowTheSettingProblemAndTheDiagnosis()
         testUnreachableIsReadFromTheRoutersError()
@@ -138,19 +141,38 @@ enum NetworkLatencyTests {
         expect(refused.router == .failed("No route to host") && refused.internet == .failed("No route to host"), "a send that fails says why, got \(refused)")
     }
 
-    /// An IPv6-only network, or none at all: with no IPv4 default route a ping to 1.1.1.1 can only
-    /// fail at once, which would read as an outage on a connection that works.
-    private static func testProbeWithoutAnIPv4RoutePingsNothing() {
+    /// A full-tunnel VPN can route the internet through utunN with no gateway address, so no router
+    /// is found while IPv4 works: the internet is still pinged, and the router line is a gap.
+    private static func testNoRouterStillPingsTheInternet() {
         let asked = LogRecorder()
         let sample = LatencyProbe.measure(router: nil, internet: "1.1.1.1", at: Date()) { address, _ in
             asked.record(address)
-            return .failed("Network is unreachable")
+            return .reply(milliseconds: 20)
         }
-        expect(asked.messages.isEmpty, "with no IPv4 default route nothing is pinged, got \(asked.messages)")
-        expect(sample.router == .unknown && sample.internet == .unknown, "and both lines are unknown, not failed, got \(sample)")
-        let history = LatencyHistory().appending(sample)
-        expect(history.diagnosis == nil, "no false alarm about the Wi-Fi or local network")
+        expect(asked.messages == ["1.1.1.1"], "with no router the internet is still pinged, got \(asked.messages)")
+        expect(sample.router == .unknown && sample.internet == .reply(20), "and answers, with the router a gap, got \(sample)")
+        expect(LatencyState(internetAddress: "1.1.1.1", settingsProblem: nil).recording(sample).notes.isEmpty, "no note when the internet answers")
+    }
+
+    /// An IPv6-only network, or none at all: the kernel refuses the send at once for want of an
+    /// IPv4 route, which is no outage of a connection that works.
+    private static func testNoRouterAndNoIPv4RouteIsUnknown() {
+        let sample = LatencyProbe.measure(router: nil, internet: "1.1.1.1", at: Date()) { _, _ in .noRoute("Network is unreachable") }
+        expect(sample.router == .unknown && sample.internet == .unknown, "a send the kernel cannot route is unknown, not failed, got \(sample)")
+        expect(LatencyHistory().appending(sample).diagnosis == nil, "no false alarm about the Wi-Fi or local network")
         expect(LatencyState(internetAddress: "1.1.1.1", settingsProblem: nil).recording(sample).notes == [LatencyHistory.noRouteNote], "the tab says why there is no line")
+    }
+
+    private static func testNoRouterAndATimeoutIsAFailure() {
+        let sample = LatencyProbe.measure(router: nil, internet: "1.1.1.1", at: Date()) { _, _ in .timeout }
+        expect(sample.router == .unknown && sample.internet == .failed("timed out"), "a ping that was sent and lost is a failure, got \(sample)")
+        expect(LatencyHistory().appending(sample).diagnosis == .localNetwork, "and with no router answering, points at the local network")
+    }
+
+    /// With a router, a send the kernel refuses is a failure like any other.
+    private static func testNoRouteWithARouterIsAFailure() {
+        let sample = LatencyProbe.measure(router: "192.168.1.1", internet: "1.1.1.1", at: Date()) { _, _ in .noRoute("No route to host") }
+        expect(sample.router == .failed("No route to host") && sample.internet == .failed("No route to host"), "got \(sample)")
     }
 
     /// Both targets silent costs one timeout, not two.
@@ -258,6 +280,7 @@ enum NetworkLatencyTests {
         if case .reply = outcome { expect(false, "an unassigned loopback address never answers") }
         expect(waited < 1, "every wait is bounded by the timeout, waited \(waited) s")
         expect(ICMPPinger().ping("not an address", timeout: 0.3) == .failed("not an IPv4 address"), "a bad address fails at once")
+        expect(ICMPPinger().ping("0.0.0.1", timeout: 0.3) == .noRoute("No route to host"), "a send the kernel cannot route says so at once")
     }
 
     // MARK: - The plugin

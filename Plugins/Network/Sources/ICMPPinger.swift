@@ -131,7 +131,10 @@ final class ICMPPinger: @unchecked Sendable {
                 }
             }
         }
-        guard sent == packet.count else { return .failed(Self.errorText()) }
+        guard sent == packet.count else {
+            let isUnroutable = errno == ENETUNREACH || errno == EHOSTUNREACH
+            return isUnroutable ? .noRoute(Self.errorText()) : .failed(Self.errorText())
+        }
 
         return awaitReply(on: socketDescriptor, from: address, sequence: sequence, started: started, deadline: deadline)
     }
