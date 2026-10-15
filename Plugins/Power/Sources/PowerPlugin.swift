@@ -33,6 +33,14 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     /// When the charger last came or went. Only `sample()` touches it, and the host calls
     /// `collect()` on this plugin's one queue, so samples never overlap.
     private var sourceTracker = SourceChangeTracker()
+    /// Empty battery-driver replies in a row, and when the driver was last read. Hidden collects
+    /// only, like `sourceTracker`.
+    private var emptyDriverReplies = 0
+    private var lastDriverReadAt: Date?
+    /// A Mac with no battery answers ioreg with nothing every time: after this many empty
+    /// replies in a row, a hidden collect reads the driver only once a minute.
+    static let emptyRepliesBeforeBackOff = 6
+    static let backedOffReadInterval: TimeInterval = 60
     /// The history as `collect()` keeps it; `history` is its copy on main.
     private let historyKeeper: PowerHistoryKeeper
     private let showingLock = NSLock()
@@ -68,7 +76,7 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
         guard showingLock.withLock({ isShowing }) else {
             let reading = hiddenSample()
             alert(reading.battery, isSettling: reading.isSettling) { PowerCollector.chargeLimit(fileAt: chargeLimitFile) }
-            let history = record(reading.macWatts)
+            guard let history = historyKeeper.record(reading.macWatts) else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.history = history
             }
@@ -76,10 +84,10 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
         }
         let next = sample()
         alert(next.batteryAlert, isSettling: next.isSettling) { next.chargeLimit }
-        let history = record(next.powerDraw?.macWatts)
+        let history = historyKeeper.record(next.powerDraw?.macWatts)
         DispatchQueue.main.async { [weak self] in
             self?.snapshot = next
-            self?.history = history
+            if let history { self?.history = history }
         }
     }
 
@@ -110,7 +118,13 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     /// window still holds when the tab opens. The Mac's draw is nil while settling.
     func hiddenSample() -> HiddenSample {
         let now = clock()
+        if emptyDriverReplies >= Self.emptyRepliesBeforeBackOff, let last = lastDriverReadAt,
+           abs(now.timeIntervalSince(last)) < Self.backedOffReadInterval {
+            return HiddenSample(macWatts: nil, battery: nil, isSettling: false)
+        }
         let entry = PowerCollector.readDriver(using: host).entry
+        lastDriverReadAt = now
+        emptyDriverReplies = entry == nil ? emptyDriverReplies + 1 : 0
         let isExternal = entry?["ExternalConnected"] as? Bool
         let next = sourceTracker.observing(isExternal, at: now)
         sourceTracker = next
@@ -128,10 +142,6 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
         let result = alerts.evaluating(battery, at: clock(), isSettling: isSettling, chargeLimit: chargeLimit)
         alerts = result.rules
         result.notifications.forEach { host.notify(id: $0.id, title: $0.title, body: $0.body) }
-    }
-
-    private func record(_ watts: Double?) -> PowerHistory {
-        historyKeeper.record(watts)
     }
 
     /// What a hidden collect reads from the battery driver alone.

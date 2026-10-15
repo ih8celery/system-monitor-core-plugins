@@ -32,14 +32,16 @@ final class PowerHistoryKeeper: @unchecked Sendable {
 
     /// Adds the reading, and writes the file when the clock is 10 minutes from the last write,
     /// either way, so a clock set backward does not put off the next write until it catches up.
-    func record(_ watts: Double?) -> PowerHistory {
+    /// Nil when the history did not change (a nil reading), so there is nothing to publish.
+    func record(_ watts: Double?) -> PowerHistory? {
         lock.withLock {
             let now = clock()
+            let previous = history
             let next = history.recording(watts, at: now)
-            if next != history { hasUnsavedChanges = true }
+            if next != previous { hasUnsavedChanges = true }
             history = next
             if abs(now.timeIntervalSince(lastSavedAt)) >= Self.saveInterval { saveLocked(at: now) }
-            return next
+            return next == previous ? nil : next
         }
     }
 
