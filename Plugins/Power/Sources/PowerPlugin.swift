@@ -41,6 +41,9 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     /// replies in a row, a hidden collect reads the driver only once a minute.
     static let emptyRepliesBeforeBackOff = 6
     static let backedOffReadInterval: TimeInterval = 60
+    /// The charge limit as last read, for hidden collects. `collect` only, like `sourceTracker`.
+    private var chargeLimitCache: ChargeLimitCache?
+    static let chargeLimitCacheLife: TimeInterval = 5 * 60
     /// The history as `collect()` keeps it; `history` is its copy on main.
     private let historyKeeper: PowerHistoryKeeper
     private let showingLock = NSLock()
@@ -75,7 +78,7 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     public func collect() {
         guard showingLock.withLock({ isShowing }) else {
             let reading = hiddenSample()
-            alert(reading.battery, isSettling: reading.isSettling) { PowerCollector.chargeLimit(fileAt: chargeLimitFile) }
+            alert(reading.battery, isSettling: reading.isSettling) { cachedChargeLimit(for: reading.battery) }
             guard let history = historyKeeper.record(reading.macWatts) else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.history = history
@@ -83,6 +86,7 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
             return
         }
         let next = sample()
+        chargeLimitCache = ChargeLimitCache(limit: next.chargeLimit, readAt: clock(), chargerState: next.batteryAlert.map(ChargerState.init))
         alert(next.batteryAlert, isSettling: next.isSettling) { next.chargeLimit }
         let history = historyKeeper.record(next.powerDraw?.macWatts)
         DispatchQueue.main.async { [weak self] in
@@ -142,6 +146,36 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
         let result = alerts.evaluating(battery, at: clock(), isSettling: isSettling, chargeLimit: chargeLimit)
         alerts = result.rules
         result.notifications.forEach { host.notify(id: $0.id, title: $0.title, body: $0.body) }
+    }
+
+    /// The charge limit for the hidden rules, read again once the cached one is a few minutes old
+    /// or the charger came, went, or started or stopped charging.
+    private func cachedChargeLimit(for battery: BatteryAlertReading?) -> Int? {
+        let now = clock()
+        let state = battery.map(ChargerState.init)
+        if let cache = chargeLimitCache, cache.chargerState == state,
+           abs(now.timeIntervalSince(cache.readAt)) < Self.chargeLimitCacheLife {
+            return cache.limit
+        }
+        let limit = PowerCollector.chargeLimit(fileAt: chargeLimitFile)
+        chargeLimitCache = ChargeLimitCache(limit: limit, readAt: now, chargerState: state)
+        return limit
+    }
+
+    private struct ChargerState: Equatable {
+        let isExternal: Bool
+        let isCharging: Bool
+
+        init(_ battery: BatteryAlertReading) {
+            isExternal = battery.isExternal
+            isCharging = battery.isCharging
+        }
+    }
+
+    private struct ChargeLimitCache {
+        let limit: Int?
+        let readAt: Date
+        let chargerState: ChargerState?
     }
 
     /// What a hidden collect reads from the battery driver alone.

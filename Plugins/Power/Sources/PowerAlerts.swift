@@ -101,8 +101,9 @@ struct PowerAlertRules {
         self.config = config
     }
 
-    /// `chargeLimit` is read only when the Mac is plugged in and not charging, so the hidden
-    /// 10-second collect does not read the preferences file for nothing.
+    /// `chargeLimit` is asked for only when the Mac is plugged in and not charging. A Mac held at
+    /// its limit is in that state for hours, so the plugin answers from a cache it refreshes every
+    /// few minutes or when the charger state changes, not by reading the file every 10 s.
     func evaluating(
         _ reading: BatteryAlertReading?, at date: Date, isSettling: Bool, chargeLimit: () -> Int?
     ) -> (rules: PowerAlertRules, notifications: [PluginNotification]) {
@@ -158,7 +159,7 @@ struct PowerAlertRules {
         return PluginNotification(
             id: "power.not-charging",
             title: "Plugged in but not charging",
-            body: "The battery is at \(reading.percent)% and has not charged for 2 minutes, though it is well short of \(target).\(reason)"
+            body: "The battery is at \(reading.percent)% and has not charged for \(Int(Self.notChargingHold / 60)) minutes, though it is well short of \(target).\(reason)"
         )
     }
 }
