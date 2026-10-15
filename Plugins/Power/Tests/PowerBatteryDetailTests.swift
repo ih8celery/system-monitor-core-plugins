@@ -12,6 +12,9 @@ enum PowerBatteryDetailTests {
         testCyclesAndTemperatureAreAbsentWhenMissing()
         testTimeRemainingIsUnknownAt65535ZeroOrMissing()
         testNoBatteryMeansNoDetail()
+        testAnEntryWithNoDetailReadingsHasNoDetail()
+        testAnEstimateOverADayIsNoEstimate()
+        testImpossibleReadingsAreMissing()
         testTimeRemainingLabelNeverReadsZero()
         testTimeRemainingShowsOnlyWhileChargingOrDischarging()
         testTemperatureLabelSaysWhoseItIs()
@@ -63,6 +66,30 @@ enum PowerBatteryDetailTests {
     private static func testNoBatteryMeansNoDetail() {
         expect(PowerCollector.parseBatteryDetail("") == nil, "a Mac with no battery has no battery detail")
         expect(PowerCollector.parseBatteryDetail("not a plist") == nil, "unreadable output has no battery detail")
+    }
+
+    private static func testAnEntryWithNoDetailReadingsHasNoDetail() {
+        let bare = detail(rawMaxCapacity: nil, designCapacity: nil, cycleCount: nil, temperature: nil, timeRemaining: nil)
+        expect(bare == nil, "a battery entry with none of the readings draws no Battery section, got \(String(describing: bare))")
+    }
+
+    /// The driver published AvgTimeToEmpty = 32360 while idle; a TimeRemaining like that must
+    /// not read 539:20.
+    private static func testAnEstimateOverADayIsNoEstimate() {
+        let idle = detail(timeRemaining: 32360)
+        expect(idle?.minutesRemaining == nil, "32360 minutes is no estimate, got \(String(describing: idle?.minutesRemaining))")
+        let pill = timeRemainingPill(state: .discharging, minutes: idle?.minutesRemaining)
+        expect(pill?.value == "Calculating…", "so the pill never reads 539:20, got \(String(describing: pill))")
+        expect(detail(timeRemaining: 24 * 60)?.minutesRemaining == 24 * 60, "a full day is still an estimate")
+        expect(detail(timeRemaining: 24 * 60 + 1)?.minutesRemaining == nil, "a minute past a day is not")
+    }
+
+    private static func testImpossibleReadingsAreMissing() {
+        expect(detail(temperature: 0)?.temperatureCelsius == nil, "Temperature 0 is no reading, not 0.0 °C")
+        expect(detail(temperature: -150)?.temperatureCelsius == nil, "a negative Temperature is no reading")
+        expect(detail(rawMaxCapacity: -5)?.healthPercent == nil, "a negative raw capacity is no health, not a negative percent")
+        expect(detail(rawMaxCapacity: 0)?.healthPercent == nil, "a zero raw capacity is no health")
+        expect(detail(cycleCount: -1)?.cycleCount == nil, "a negative cycle count is no reading")
     }
 
     private static func testTimeRemainingLabelNeverReadsZero() {

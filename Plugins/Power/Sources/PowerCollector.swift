@@ -21,7 +21,7 @@ enum PowerCollector {
             thermalState: thermalStateLabel(ProcessInfo.processInfo.thermalState),
             batteryPercent: parsedBattery.percent,
             chargeState: driverEntry.flatMap(chargeState(from:)),
-            batteryDetail: driverEntry.map(batteryDetail(from:)),
+            batteryDetail: driverEntry.flatMap(batteryDetail(from:)),
             sleepAssertions: parsedAssertions,
             status: status.isEmpty ? "Power sample OK" : status.joined(separator: ", "),
             health: SampleHealth(isOK: status.isEmpty)

@@ -1,7 +1,8 @@
 import Foundation
 
 /// The battery's own readings from the same ioreg entry as the charge state. Each is nil when
-/// the driver does not report it, so the panel leaves it out rather than showing a guess.
+/// the driver does not report it or reports something impossible, so the panel leaves it out
+/// rather than showing a guess.
 struct BatteryDetail: Equatable {
     /// Full-charge capacity over design capacity. Can pass 100% on a new battery, and will not
     /// match System Settings exactly, which rounds and weighs it its own way.
@@ -20,25 +21,30 @@ struct PillText: Equatable {
 }
 
 extension PowerCollector {
-    /// The driver's `TimeRemaining` while it has no estimate yet.
-    static let noEstimate = 65535
+    /// The longest `TimeRemaining` taken as an estimate. The driver writes 65535 while it has
+    /// none, and has published idle averages like 32360 minutes; neither should read as hours.
+    static let longestEstimateMinutes = 24 * 60
 
     static func parseBatteryDetail(_ output: String) -> BatteryDetail? {
-        batteryEntry(output).map(batteryDetail(from:))
+        batteryEntry(output).flatMap(batteryDetail(from:))
     }
 
-    static func batteryDetail(from battery: [String: Any]) -> BatteryDetail {
-        let rawMax = battery["AppleRawMaxCapacity"] as? Int
-        let design = battery["DesignCapacity"] as? Int
-        let minutes = battery["TimeRemaining"] as? Int
-        return BatteryDetail(
-            healthPercent: rawMax.flatMap { raw in
-                design.flatMap { $0 > 0 ? Int((Double(raw) / Double($0) * 100).rounded()) : nil }
-            },
-            cycleCount: battery["CycleCount"] as? Int,
-            temperatureCelsius: (battery["Temperature"] as? Int).map { Double($0) / 100 },
-            minutesRemaining: minutes.flatMap { $0 > 0 && $0 != noEstimate ? $0 : nil }
+    /// Nil when the entry holds none of the readings, so no empty Battery section is drawn.
+    static func batteryDetail(from battery: [String: Any]) -> BatteryDetail? {
+        let rawMax = reading(battery["AppleRawMaxCapacity"], in: 1...Int.max)
+        let design = reading(battery["DesignCapacity"], in: 1...Int.max)
+        let detail = BatteryDetail(
+            healthPercent: rawMax.flatMap { raw in design.map { Int((Double(raw) / Double($0) * 100).rounded()) } },
+            cycleCount: reading(battery["CycleCount"], in: 0...Int.max),
+            temperatureCelsius: reading(battery["Temperature"], in: 1...Int.max).map { Double($0) / 100 },
+            minutesRemaining: reading(battery["TimeRemaining"], in: 1...longestEstimateMinutes)
         )
+        return detail == BatteryDetail() ? nil : detail
+    }
+
+    /// An integer reading, or nil when it is missing or outside what the battery can report.
+    static func reading(_ value: Any?, in plausible: ClosedRange<Int>) -> Int? {
+        (value as? Int).flatMap { plausible.contains($0) ? $0 : nil }
     }
 }
 
