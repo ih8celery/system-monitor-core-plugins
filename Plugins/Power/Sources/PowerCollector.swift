@@ -1,22 +1,25 @@
 import Foundation
 import SystemBarKit
 
-/// Two pmset reads and the parsing of them. Pure apart from `collect(using:)`.
+/// Two pmset reads, one ioreg read of the battery driver, and the parsing of them. Pure apart
+/// from `collect(using:)`.
 enum PowerCollector {
     static func collect(using host: HostServices) -> PowerSnapshot {
         let battery = host.run(path: "/usr/bin/pmset", arguments: ["-g", "batt"])
+        let driver = host.run(path: ioregPath, arguments: ioregArguments)
         let assertions = host.run(path: "/usr/bin/pmset", arguments: ["-g", "assertions"])
         let parsedBattery = parseBatteryStatus(battery.output)
         let parsedAssertions = assertions.status == 0 ? parseSleepAssertions(assertions.output) : []
         var status: [String] = []
         if battery.status != 0 { status.append("battery unavailable") }
+        if driver.status != 0 { status.append("charge state unavailable") }
         if assertions.status != 0 { status.append("assertions unavailable") }
 
         return PowerSnapshot(
             powerSource: parsedBattery.powerSource,
             thermalState: thermalStateLabel(ProcessInfo.processInfo.thermalState),
             batteryPercent: parsedBattery.percent,
-            isCharging: parsedBattery.isCharging,
+            chargeState: driver.status == 0 ? parseChargeState(driver.output) : nil,
             sleepAssertions: parsedAssertions,
             status: status.isEmpty ? "Power sample OK" : status.joined(separator: ", "),
             health: SampleHealth(isOK: status.isEmpty)
@@ -32,11 +35,9 @@ enum PowerCollector {
         }
     }
 
-    static func parseBatteryStatus(_ output: String) -> (powerSource: String, state: String, percent: Int?, isCharging: Bool?) {
+    static func parseBatteryStatus(_ output: String) -> (powerSource: String, percent: Int?) {
         var powerSource = "Unknown power"
-        var state = "Battery unavailable"
         var percent: Int?
-        var isCharging: Bool?
 
         for rawLine in output.split(whereSeparator: \.isNewline) {
             let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -54,15 +55,10 @@ enum PowerCollector {
                    let percentToken = percentPart.split(whereSeparator: \.isWhitespace).last {
                     percent = Int(percentToken.replacingOccurrences(of: "%", with: ""))
                 }
-                if parts.count > 1 {
-                    state = parts[1]
-                    let lower = state.lowercased()
-                    isCharging = lower.contains("charging") || lower.contains("charged")
-                }
             }
         }
 
-        return (powerSource, state, percent, isCharging)
+        return (powerSource, percent)
     }
 
     static func parseSleepAssertions(_ output: String) -> [String] {
