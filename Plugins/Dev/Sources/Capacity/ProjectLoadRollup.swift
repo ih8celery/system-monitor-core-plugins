@@ -103,10 +103,10 @@ enum ProjectLoadRollup {
 
     /// Which categorized processes are genuinely working right now.
     ///
-    /// This cannot use `ps` pcpu the way the capacity script does. pcpu is an average over a
-    /// process's whole life, so a compile job spawned two seconds ago reads near zero while burning
-    /// a full core — exactly the work this panel exists to show. A measured delta has no such blind
-    /// spot.
+    /// This cannot use `ps` pcpu the way the capacity script does. The BSD man page calls pcpu "a
+    /// decaying average over up to a minute of previous (real) time", so it lags: a compile job
+    /// spawned two seconds ago reads well below the full core it is burning — exactly the work this
+    /// panel exists to show. A measured delta over a known interval has no such lag.
     ///
     /// What the two reads managed to establish about each categorized process.
     static func evidence(
