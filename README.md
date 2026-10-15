@@ -10,7 +10,7 @@ SystemBar's plugin folder like any other.
 | Tab | What it shows |
 |---|---|
 | **CPU** | Total load, process count, a 90-second history graph, and the top processes by CPU with their memory |
-| **Memory** | Used and available the way Activity Monitor counts them, the kernel's pressure level, the wired/active/inactive/compressed/free/other breakdown (it adds up to the machine's memory), swap and, while it is moving, how much was swapped in and out in the last minute, a graph of the last 15 minutes of memory used coloured by pressure, optional notifications for rising pressure and heavy swapping (see Memory notifications below) (filled in the background, so it is full when you open the tab), how much memory the GPU holds (how busy it is lives on the CPU tab), and top processes by memory |
+| **Memory** | Used and available the way Activity Monitor counts them, the kernel's pressure level, the wired/active/inactive/compressed/free/other breakdown (it adds up to the machine's memory), swap and, while it is moving, how much was swapped in and out in the last minute, a graph of the last 15 minutes of memory used coloured by pressure (filled in the background, so it is full when you open the tab), optional notifications for rising pressure and heavy swapping (see Memory notifications below), how much memory the GPU holds (how busy it is lives on the CPU tab), and top processes by memory |
 | **Disk** | Free and used space per volume, Time Machine local snapshots, a map of which folders hold the space, and what grew or shrank over the last day or week, measured by scans that run in the background and saved between launches, every number stamped with its age, and a read/write speed graph of the internal disk for the last two minutes (the tab reads the counters itself, in process, every second while it shows and every 5 s while hidden, so the graph is already full when you open it). The headline is free space as Finder shows it (`volumeAvailableCapacityForImportantUsageKey`, which counts purgeable space as available), with "of which X purgeable" underneath; the capacity bar splits Used, Purgeable and Free, and the folder map below it still counts purgeable space as used, because it is on the disk |
 | **Network** | Live up/down bandwidth, the Wi-Fi signal with a good/fair/poor verdict (hidden on Ethernet), latency to the router and to the internet with failed pings marked in red, which processes are talking and where to, and an on-demand speed test |
 | **Power** (not installed by default) | Battery and power source, and the sleep assertions keeping your Mac awake with their likely causes |
@@ -37,13 +37,13 @@ before; the move does not touch it.
 
 ## Memory notifications
 
-The Memory tab posts a macOS notification when memory pressure rises into Warning or Critical (each fires once on the rise, and again only after pressure has dropped to Normal), and when swapping averages at or above a rate for a stretch of minutes (once, and again only after it has dropped below the rate). SystemBar keeps one notification per rule per hour. Both rules are on by default; set these in the tab's `settings` in `plugins.json`:
+The Memory tab posts a macOS notification when memory pressure rises into Warning or Critical (each fires once on the rise, and again only after pressure has dropped to Normal), and when swapping holds at or above a rate for a whole stretch of minutes (every sample-to-sample rate at or above it, one quiet sample allowed, so a single burst or a gap such as sleep does not count; once, and again only after it has lapsed). SystemBar keeps one notification per rule per hour. Both rules are on by default; set these in the tab's `settings` in `plugins.json`:
 
 | Key | Meaning | Default |
 |---|---|---|
 | `notifyPressure` | `false` turns off the Warning and Critical notifications | `true` |
 | `notifySwap` | `false` turns off the heavy-swapping notification | `true` |
-| `swapMegabytesPerMinute` | Data swapped in plus out, in MB per minute (1024-based), averaged over the whole window, that counts as heavy; 1 to 1000000 | `100` |
+| `swapMegabytesPerMinute` | Data swapped in plus out, in MB per minute (1024-based), that swapping must hold for the whole window to count as heavy; 1 to 1000000 | `100` |
 | `swapMinutes` | How long that average must hold, in minutes, 1 to 60 | `5` |
 
 A value of the wrong kind or outside its range keeps the default and is named in SystemBar's log.
