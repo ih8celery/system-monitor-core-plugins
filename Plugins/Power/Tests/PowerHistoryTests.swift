@@ -163,11 +163,11 @@ enum PowerHistoryTests {
         _ = tab.hiddenSample()
         clock.advance(by: 10)
         answer.value = PowerDrawFixtures.acCharging
-        expect(tab.hiddenSample() == nil, "a hidden sample just after plugging in records nothing")
+        expect(tab.hiddenSample().macWatts == nil, "a hidden sample just after plugging in records nothing")
         clock.advance(by: 30)
         expect(tab.sample().powerDraw?.macWatts == nil, "opened 40 s after the change, the Mac figure still waits")
         clock.advance(by: 70)
-        expect(near(tab.hiddenSample(), 27.516), "100 s after the change, hidden samples use the telemetry")
+        expect(near(tab.hiddenSample().macWatts, 27.516), "100 s after the change, hidden samples use the telemetry")
     }
 
     private static func testTheGraphBreaksAtGaps() {

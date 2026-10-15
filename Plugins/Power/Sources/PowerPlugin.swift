@@ -7,7 +7,8 @@ import SystemBarKit
 /// while the tab shows and every 10 seconds while it is hidden. Showing, a collect makes every
 /// read and publishes the snapshot on the main thread, where the panel observes it. Hidden, it
 /// makes only the one ioreg read of the battery driver, enough for the Mac's draw, and records
-/// that into the day's history, which is saved in the tab's data folder.
+/// that into the day's history, which is saved in the tab's data folder. Both run the battery-low
+/// and not-charging notification rules from that same read, so they work with the window closed.
 /// Contributors follow the process feed instead, on their own 10-second cadence, so the first
 /// showing after launch does not sit empty for up to a minute waiting on `collect()`.
 @objc(SystemBarPowerPlugin)
@@ -24,6 +25,8 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     @Published private(set) var snapshot = PowerSnapshot()
     @Published private(set) var contributors: [PowerContributor] = []
     @Published private(set) var history: PowerHistory
+    /// Settings that could not be used, worded for the panel; each is also logged.
+    @Published private(set) var settingsProblems: [String]
     private let host: HostServices
     private var feedSubscription: AnyCancellable?
     private let clock: @Sendable () -> Date
@@ -35,14 +38,22 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     private let store: PowerHistoryStore
     private let showingLock = NSLock()
     private var isShowing = false
+    /// What the notification rules remember. Touched only by `collect`, which the host calls one at a time.
+    private var alerts: PowerAlertRules
+    private let chargeLimitFile: URL
 
     @MainActor public convenience init(host: HostServices) {
         self.init(host: host, clock: { Date() })
     }
 
-    @MainActor init(host: HostServices, clock: @escaping @Sendable () -> Date) {
+    @MainActor init(host: HostServices, clock: @escaping @Sendable () -> Date, chargeLimitFile: URL = PowerCollector.chargeLimitFile) {
         self.host = host
         self.clock = clock
+        self.chargeLimitFile = chargeLimitFile
+        let parsed = PowerAlertConfig.parse(host.settings)
+        parsed.problems.forEach { host.log("Power: \($0)") }
+        settingsProblems = parsed.problems
+        alerts = PowerAlertRules(config: parsed.config)
         store = PowerHistoryStore.standard(dataDirectory: host.dataDirectory)
         let now = clock()
         let loaded = PowerHistory(points: store.load(now: now, log: host.log), now: now)
@@ -57,13 +68,16 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
 
     public func collect() {
         guard showingLock.withLock({ isShowing }) else {
-            let history = record(hiddenSample())
+            let reading = hiddenSample()
+            alert(reading.battery, isSettling: reading.isSettling) { PowerCollector.chargeLimit(fileAt: chargeLimitFile) }
+            let history = record(reading.macWatts)
             DispatchQueue.main.async { [weak self] in
                 self?.history = history
             }
             return
         }
         let next = sample()
+        alert(next.batteryAlert, isSettling: next.isSettling) { next.chargeLimit }
         let history = record(next.powerDraw?.macWatts)
         DispatchQueue.main.async { [weak self] in
             self?.snapshot = next
@@ -81,20 +95,33 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     func sample() -> PowerSnapshot {
         let now = clock()
         let before = sourceTracker
-        let next = PowerCollector.collect(using: host) { before.observing($0, at: now).isSettling(at: now) }
+        let next = PowerCollector.collect(using: host, chargeLimitFile: chargeLimitFile) { before.observing($0, at: now).isSettling(at: now) }
         sourceTracker = before.observing(next.isExternal, at: now)
         return next
     }
 
     /// The hidden sample: the battery driver alone, through the same tracker, so the settle
-    /// window still holds when the tab opens. Returns the Mac's draw, nil while settling.
-    func hiddenSample() -> Double? {
+    /// window still holds when the tab opens. The Mac's draw is nil while settling.
+    func hiddenSample() -> HiddenSample {
         let now = clock()
         let entry = PowerCollector.readDriver(using: host).entry
         let isExternal = entry?["ExternalConnected"] as? Bool
         let next = sourceTracker.observing(isExternal, at: now)
         sourceTracker = next
-        return PowerCollector.powerDraw(from: entry, sourceJustChanged: next.isSettling(at: now))?.macWatts
+        let isSettling = next.isSettling(at: now)
+        return HiddenSample(
+            macWatts: PowerCollector.powerDraw(from: entry, sourceJustChanged: isSettling)?.macWatts,
+            battery: BatteryAlertReading(entry: entry),
+            isSettling: isSettling
+        )
+    }
+
+    /// Runs the notification rules on this read and posts what they say. The host keeps each
+    /// rule to one notification an hour.
+    private func alert(_ battery: BatteryAlertReading?, isSettling: Bool, chargeLimit: () -> Int?) {
+        let result = alerts.evaluating(battery, at: clock(), isSettling: isSettling, chargeLimit: chargeLimit)
+        alerts = result.rules
+        result.notifications.forEach { host.notify(id: $0.id, title: $0.title, body: $0.body) }
     }
 
     /// Adds the reading to the history and saves it once per new minute, so the file is written
@@ -111,6 +138,13 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
         }
         recordedHistory = next
         return next
+    }
+
+    /// What a hidden collect reads from the battery driver alone.
+    struct HiddenSample {
+        let macWatts: Double?
+        let battery: BatteryAlertReading?
+        let isSettling: Bool
     }
 
     @MainActor public func makeView() -> AnyView {
