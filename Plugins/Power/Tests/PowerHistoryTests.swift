@@ -22,6 +22,8 @@ enum PowerHistoryTests {
         testLoadAndSaveDropOldPoints()
         testHistorySurvivesARelaunch()
         testTheHistoryIsSavedEveryTenMinutesAndOnHiding()
+        testAReadingMergesIntoItsOwnMinuteWhereverItIs()
+        testAClockSetBackTenMinutesKeepsRecordingAndSaving()
         testAHiddenCollectRunsOnlyIoreg()
         testAShowingCollectRunsEverythingAndRecords()
         testHiddenSamplesKeepTheSettleWindow()
@@ -162,6 +164,36 @@ enum PowerHistoryTests {
         expect(saved() == 13, "the plugin going away saves too, got \(saved())")
         let text = String(decoding: (try? Data(contentsOf: file.fileURL)) ?? Data(), as: UTF8.self)
         expect(!text.contains("\n"), "the file is compact JSON, not pretty-printed")
+    }
+
+    private static func testAReadingMergesIntoItsOwnMinuteWhereverItIs() {
+        let history = recorded([(0, 10), (60, 20), (120, 30), (30, 20)])
+        expect(history.points.map(\.minute) == [start, at(60), at(120)], "a reading for an earlier minute joins that minute, no duplicate, got \(history.points.map(\.minute))")
+        expect(near(history.points.first?.watts, 15) && history.points.first?.samples == 2, "and averages into it, got \(String(describing: history.points.first))")
+        let earlier = history.recording(5, at: at(-120))
+        expect(earlier.points.map(\.minute) == [at(-120), start, at(60), at(120)], "a minute before all the others goes first, got \(earlier.points.map(\.minute))")
+    }
+
+    /// The clock set back 10 minutes, as a time-zone or NTP correction can do.
+    private static func testAClockSetBackTenMinutesKeepsRecordingAndSaving() {
+        let dataDirectory = folder.appendingPathComponent("clock-back")
+        let file = PowerHistoryStore.standard(dataDirectory: dataDirectory)
+        let clock = LockedDate(start)
+        let tab = plugin(PowerDrawFixtures.acIdle, folder: dataDirectory, clock: clock)
+        for _ in 0...10 {
+            tab.collect()
+            clock.advance(by: 60)
+        }
+        clock.advance(by: -60 - 10 * 60)
+        for _ in 0..<3 {
+            tab.collect()
+            clock.advance(by: 60)
+        }
+        waitUntil { tab.history.points.first?.samples == 2 }
+        let minutes = tab.history.points.map(\.minute)
+        expect(minutes.count == 11 && Set(minutes).count == 11, "after the jump each sample joins its minute, no duplicates, got \(minutes.count) points")
+        let saved = file.load(now: clock.value, log: { _ in })
+        expect(saved.first?.samples == 2, "and a save still happens, ten minutes from the last by the clock's distance, got \(String(describing: saved.first))")
     }
 
     private static func testAHiddenCollectRunsOnlyIoreg() {
