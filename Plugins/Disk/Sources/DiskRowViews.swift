@@ -47,13 +47,16 @@ struct DiskRowView: View {
         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
-    private var valueText: String {
+    private var valueText: String { Self.valueText(change: change, bytes: row.bytes) }
+
+    /// The row's size, or its change and new size, in Apple's decimal units.
+    static func valueText(change: DiskMover.Change?, bytes: UInt64) -> String {
         switch change {
-        case .grew(let bytes)?: return "+\(byteString(bytes)) → \(byteString(row.bytes))"
-        case .shrank(let bytes)?: return "−\(byteString(bytes)) → \(byteString(row.bytes))"
-        case .freed(let bytes)?: return "freed \(byteString(bytes))"
-        case .new?: return "new \(byteString(row.bytes))"
-        case nil: return byteString(row.bytes)
+        case .grew(let delta)?: return "+\(fileByteString(delta)) → \(fileByteString(bytes))"
+        case .shrank(let delta)?: return "−\(fileByteString(delta)) → \(fileByteString(bytes))"
+        case .freed(let delta)?: return "freed \(fileByteString(delta))"
+        case .new?: return "new \(fileByteString(bytes))"
+        case nil: return fileByteString(bytes)
         }
     }
 
