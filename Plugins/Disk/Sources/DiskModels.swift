@@ -9,15 +9,55 @@ struct DiskVolume: Identifiable {
     /// Plain free space, what `df` calls available. Space macOS could purge is not counted:
     /// it is still on the disk, and the map on this tab is of what is on the disk.
     let free: UInt64
+    /// Used space macOS would give back when something needs it (caches, local snapshots): what
+    /// Finder's "available" counts on top of `free`. Zero when the volume does not say.
+    let purgeable: UInt64
     let isRoot: Bool
 
+    init(name: String, path: String, total: UInt64, free: UInt64, purgeable: UInt64 = 0, isRoot: Bool) {
+        self.name = name
+        self.path = path
+        self.total = total
+        self.free = free
+        self.purgeable = purgeable
+        self.isRoot = isRoot
+    }
+
+    /// Used including purgeable space: what the folder map accounts for.
     var used: UInt64 {
         total > free ? total - free : 0
     }
 
-    var freeRatio: Double {
-        Double(free) / Double(max(total, 1))
+    /// What Finder shows as available: free plus purgeable, never more than the capacity.
+    var finderFree: UInt64 {
+        min(free &+ purgeable, total)
     }
+
+    /// Used as Finder counts it, with the purgeable share left out.
+    var finderUsed: UInt64 {
+        total - finderFree
+    }
+
+    var finderFreeRatio: Double {
+        Double(finderFree) / Double(max(total, 1))
+    }
+
+    /// The headline's colour band, by Finder's number: above 20% free is good, above 10% caution.
+    var freeSpaceLevel: FreeSpaceLevel {
+        if finderFreeRatio > 0.20 { return .good }
+        if finderFreeRatio > 0.10 { return .caution }
+        return .critical
+    }
+
+    /// Under the headline: how much of the free figure is purgeable; nil when none is.
+    var purgeableNote: String? {
+        let share = finderFree - min(free, finderFree)
+        return share > 0 ? "of which \(byteString(share)) purgeable" : nil
+    }
+}
+
+enum FreeSpaceLevel {
+    case good, caution, critical
 }
 
 /// Everything the panel draws. Volume fields come from each 30-second reading; the row fields
