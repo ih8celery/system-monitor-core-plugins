@@ -22,6 +22,7 @@ enum MemoryTests {
         testGPUIsReadEveryThirtySecondsAndPressureEverySample()
         testGPUIsNotReadWhileHidden()
         testPluginReadsGPUOnlyWhileShowing()
+        testFreshPluginRunsNoIoregUntilFirstShown()
         testUnknownPressureShowsAsUnknown()
         testPluginPublishesWhatItCollected()
         testProcessesFollowTheFeed()
@@ -203,6 +204,7 @@ enum MemoryTests {
 
     private static func testGPUFiguresComeFromIoreg() {
         let collector = MemoryCollector(host: makeHost(runner: recordingRunner(LogRecorder(), answers: answers)), kernelPressureLevel: { 1 })
+        collector.setShowing(true)
         let gpu = collector.sample(at: Date(timeIntervalSince1970: 10_000)).gpu
         expect(gpu.inUseMemory == 123_456_789, "in-use memory is the plain 'In use system memory' key, not the '(driver)' one that precedes it, got \(gpu.inUseMemory)")
         expect(gpu.allocatedMemory == 14_671_822_848, "allocated memory is 'Alloc system memory', got \(gpu.allocatedMemory)")
@@ -216,6 +218,7 @@ enum MemoryTests {
     private static func testAnUnquotedKeyPrefixIsNotMistakenForTheKey() {
         let answers = ["/usr/sbin/ioreg -r -c AGXAccelerator -d 2": driverOnlyIoregOutput]
         let collector = MemoryCollector(host: makeHost(runner: recordingRunner(LogRecorder(), answers: answers)), kernelPressureLevel: { 1 })
+        collector.setShowing(true)
         let gpu = collector.sample(at: Date(timeIntervalSince1970: 10_000)).gpu
         expect(gpu.inUseMemory == 0, "with no 'In use system memory' key, the '(driver)' figure must not stand in for it, got \(gpu.inUseMemory)")
         expect(gpu.allocatedMemory == 0, "the other figures are unaffected, got \(gpu)")
@@ -229,6 +232,7 @@ enum MemoryTests {
             kernelPressureLevel: { pressureReads.record("read"); return 1 }
         )
         let start = Date(timeIntervalSince1970: 10_000)
+        collector.setShowing(true)
 
         let first = collector.sample(at: start)
         let soon = collector.sample(at: start.addingTimeInterval(3))
@@ -280,6 +284,19 @@ enum MemoryTests {
         expect(ioregCalls(recorder) == 1, "a showing plugin reads once at once, then waits out the cache, got \(ioregCalls(recorder))")
     }
 
+    /// The host calls visibilityChanged(true) when a tab is shown and never says a tab starts hidden,
+    /// so a plugin nobody has opened must not read ioreg: it starts hidden.
+    private static func testFreshPluginRunsNoIoregUntilFirstShown() {
+        let recorder = LogRecorder()
+        let plugin = MemoryPlugin(host: makeHost(runner: recordingRunner(recorder, answers: answers)), kernelPressureLevel: { 1 })
+        for _ in 0..<5 { plugin.collect() }
+        expect(ioregCalls(recorder) == 0, "a fresh plugin collected with no visibility call runs no ioreg, got \(ioregCalls(recorder))")
+        plugin.visibilityChanged(isVisible: true)
+        expect(ioregCalls(recorder) == 0, "showing reads nothing by itself")
+        plugin.collect()
+        expect(ioregCalls(recorder) == 1, "the next collect after the first show reads it, got \(ioregCalls(recorder))")
+    }
+
     private static func testUnknownPressureShowsAsUnknown() {
         let known = MemoryStatsSnapshot().recording(MemoryReading(memory: MemorySnapshot(), gpu: GPUSnapshot(), pressure: .critical, sampledAt: Date(timeIntervalSince1970: 0)))
         expect(known.pressure == .critical, "a reading's level is what the panel shows")
@@ -291,6 +308,7 @@ enum MemoryTests {
 
     private static func testPluginPublishesWhatItCollected() {
         let plugin = MemoryPlugin(host: makeHost(runner: recordingRunner(LogRecorder(), answers: answers)))
+        plugin.visibilityChanged(isVisible: true)
         plugin.collect()
         waitUntil { plugin.stats.lastUpdated != nil }
         expect(plugin.stats.gpu.inUseMemory == 123_456_789, "collect() publishes the reading for the panel, got \(plugin.stats.gpu)")

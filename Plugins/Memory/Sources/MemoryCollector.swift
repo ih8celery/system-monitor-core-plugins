@@ -13,10 +13,11 @@ final class MemoryCollector: @unchecked Sendable {
     private var lastGPURefresh = Date.distantPast
     private var cachedGPU = GPUSnapshot()
     private let showingLock = NSLock()
-    /// Starts true: if the host never reports the first show, the pills still fill in.
-    private var isShowing = true
-    /// Set when the tab comes back into view, so the next sample reads ioreg whatever the cache's age.
-    private var isGPUStale = false
+    /// Starts false: the host reports every show and never a hidden start, so a tab nobody has
+    /// opened must not read ioreg.
+    private var isShowing = false
+    /// Set until the first sample after a show, so that sample reads ioreg whatever the cache's age.
+    private var isGPUStale = true
 
     /// `kernelPressureLevel` reads `kern.memorystatus_vm_pressure_level` in the app and is a
     /// fake in tests.
