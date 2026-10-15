@@ -17,10 +17,10 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     public let accent = Palette.cyan
     public let refreshInterval: TimeInterval = DiskSampling.refreshInterval
     public let sharedFeeds: Set<SharedFeed> = []
-    /// 15 minutes, or nil when `backgroundScans` is false in this tab's settings: the host then
-    /// never calls `collect()` while the tab is hidden, and scans run only on the button and
-    /// while the tab shows.
-    public let backgroundInterval: TimeInterval?
+    /// Always 15 minutes: the hidden `collect()` also runs the low-space rule, which must not
+    /// depend on whether folder scans are allowed in the background. `backgroundScans: false`
+    /// stops only the scan step of a hidden call.
+    public let backgroundInterval: TimeInterval? = DiskSampling.backgroundInterval
 
     /// For the panel, which shortens paths under home to `~/...`.
     var homeDirectory: String { host.homeDirectory }
@@ -61,6 +61,11 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     private var isForcedRunQueued = false
     /// The free-space rule and what it last saw. `collect()` is the only caller, one at a time,
     /// but the lock keeps that from being an unwritten assumption.
+    /// `backgroundScans` from settings, and whether the tab shows now (set by the host on main,
+    /// read on the plugin's queue, so behind a lock). A hidden call scans only when allowed.
+    private let scanGateLock = NSLock()
+    private let scansWhileHidden: Bool
+    private var isShowing = false
     private let lowSpaceLock = NSLock()
     private var lowSpaceRule: DiskLowSpaceRule
 
@@ -81,7 +86,7 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
         let setting = Self.backgroundScansSetting(host.settings)
         let limit = DiskLowSpaceRule.limit(from: host.settings)
         lowSpaceRule = DiskLowSpaceRule(limitBytes: limit.bytes)
-        backgroundInterval = setting.isEnabled ? DiskSampling.backgroundInterval : nil
+        scansWhileHidden = setting.isEnabled
         var initial = DiskSnapshot()
         initial.settingsProblem = [setting.problem, limit.problem].compactMap { $0 }.joined(separator: "; ").nilIfEmpty
         snapshot = initial
@@ -106,6 +111,7 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
         let reading = collector.readVolumes()
         publish { $0.applying(reading) }
         checkLowSpace(reading.volumes.first(where: \.isRoot))
+        guard scanGateLock.withLock({ isShowing }) || scansWhileHidden else { return }
         requestScan(force: false)
     }
 
@@ -229,6 +235,7 @@ public final class DiskPlugin: NSObject, TabPlugin, ObservableObject {
     /// Showing the tab samples every second and hiding it every 5 s, so the graph keeps filling
     /// while the popover is closed and is full when it opens.
     @MainActor public func visibilityChanged(isVisible: Bool) {
+        scanGateLock.withLock { isShowing = isVisible }
         scheduleActivityTimer(every: isVisible ? activitySampling.visibleInterval : activitySampling.hiddenInterval, startingNow: isVisible)
     }
 

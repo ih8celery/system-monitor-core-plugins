@@ -20,6 +20,7 @@ enum DiskLowSpaceTests {
         testTheNotificationNamesTheVolumeAndTheFreeSpace()
         testThePluginPostsOnceThroughTheHost()
         testThePluginReportsABadLimitInTheFooter()
+        testTurningBackgroundScansOffStillRunsTheRuleWhileHidden()
     }
 
     private static let gigabyte: UInt64 = 1_000_000_000
@@ -127,18 +128,24 @@ enum DiskLowSpaceTests {
 
     /// A plugin over the real volumes, with the limit set above any disk so the machine's own free
     /// space cannot change the result.
-    private static func makePlugin(settings: PluginSettings, directory: URL, notify: @escaping @Sendable (PluginNotification) -> Void) -> DiskPlugin {
+    private static func makePlugin(
+        settings: PluginSettings,
+        directory: URL,
+        plans: [DiskScanPlan] = [],
+        runner: @escaping CommandRunner = { _, _, _, _ in CommandOutput(output: "", error: "", status: 0, didTimeout: false) },
+        notify: @escaping @Sendable (PluginNotification) -> Void
+    ) -> DiskPlugin {
         let host = HostServices(
             homeDirectory: "/tmp/systembar-tests",
             processes: Feed(initial: ProcessSummary()),
             fastStats: Feed(initial: FastStatsSnapshot()),
-            runner: { _, _, _, _ in CommandOutput(output: "", error: "", status: 0, didTimeout: false) },
+            runner: runner,
             log: { _ in },
             settings: settings,
             dataDirectory: directory,
             notify: notify
         )
-        return DiskPlugin(host: host, plans: [], now: { Date() }, listChildren: { _ in [] })
+        return DiskPlugin(host: host, plans: plans, now: { Date() }, listChildren: { parent in parent == "/tmp/systembar-tests" ? ["/tmp/systembar-tests/big"] : [] })
     }
 
     private static func testThePluginPostsOnceThroughTheHost() {
@@ -154,6 +161,30 @@ enum DiskLowSpaceTests {
         let quiet = HostServices.recordingNotifications()
         makePlugin(settings: settings(.number(0.001)), directory: directory, notify: quiet.notify).collect()
         expect(quiet.posted().isEmpty, "a Mac with more than a megabyte free posts nothing")
+    }
+
+    /// `backgroundScans: false` stops folder scans while hidden, not the low-space warning: the host
+    /// still makes its 15-minute call, and only the scan step of it is skipped.
+    private static func testTurningBackgroundScansOffStillRunsTheRuleWhileHidden() {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = LogRecorder()
+        let recording = HostServices.recordingNotifications()
+        let off = PluginSettings(values: ["backgroundScans": .bool(false), DiskLowSpaceRule.limitKey: .number(900_000)])
+        let plan = DiskScanPlan(kind: .overview, cadence: 3600, budget: 60, roots: [""])
+        let plugin = makePlugin(settings: off, directory: directory, plans: [plan], runner: recordingRunner(recorder, answers: [:]), notify: recording.notify)
+        expect(plugin.backgroundInterval == DiskSampling.backgroundInterval, "the host keeps calling while hidden, which --list-plugins reports")
+
+        plugin.collect()
+        plugin.drainScanQueue()
+        expect(recording.posted().count == 1, "the hidden call ran the low-space rule, got \(recording.posted())")
+        expect(!recorder.messages.contains { $0.hasPrefix("/usr/bin/du") }, "and skipped the scan, got \(recorder.messages)")
+
+        plugin.visibilityChanged(isVisible: true)
+        plugin.collect()
+        plugin.drainScanQueue()
+        expect(recorder.messages.contains { $0.hasPrefix("/usr/bin/du") }, "while the tab shows, scans run as always, got \(recorder.messages)")
+        plugin.visibilityChanged(isVisible: false)
     }
 
     private static func testThePluginReportsABadLimitInTheFooter() {
