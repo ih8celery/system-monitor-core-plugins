@@ -10,7 +10,7 @@ SystemBar's plugin folder like any other.
 | Tab | What it shows |
 |---|---|
 | **CPU** | Total load, process count, a 90-second history graph, and the top processes by CPU with their memory |
-| **Memory** | Used and available the way Activity Monitor counts them, the kernel's pressure level, the wired/active/inactive/compressed/free breakdown, swap, how busy the GPU is and how much memory it holds, and top processes by memory |
+| **Memory** | Used and available the way Activity Monitor counts them, the kernel's pressure level, the wired/active/inactive/compressed/free/other breakdown (it adds up to the machine's memory), swap and, while it is moving, how much was swapped in and out in the last minute, a graph of the last 15 minutes of memory used coloured by pressure (filled in the background, so it is full when you open the tab), how busy the GPU is and how much memory it holds, and top processes by memory |
 | **Disk** | Free and used space per volume, Time Machine local snapshots, a map of which folders hold the space, and what grew or shrank over the last day or week, measured by scans that run in the background and saved between launches, every number stamped with its age, and a read/write speed graph of the internal disk for the last two minutes (drawn only while the tab is open). Free is what `df` reports; Finder's Available also counts purgeable space, so it can read higher |
 | **Network** | Live up/down bandwidth, which processes are talking and where to, latency, and an on-demand speed test |
 | **Power** (not installed by default) | Battery and power source, and the sleep assertions keeping your Mac awake with their likely causes |
@@ -81,13 +81,13 @@ SystemBar runs entirely as your user. It never asks for `sudo` or elevated privi
 
 ## How often each tab samples
 
-Each interval lives in that tab's plugin, next to the code that uses it. The Disk tab's background interval is pinned by `scripts/test.sh`, so changing it means changing that check too.
+Each interval lives in that tab's plugin, next to the code that uses it. The Disk and Memory tabs' background intervals are pinned by `scripts/test.sh`, so changing it means changing that check too.
 
 | Tab | Its own sampling | While hidden | Where the number lives |
 |---|---|---|---|
 | Power | `pmset` every 60s | — | `PowerPlugin.refreshInterval` |
 | Dev | `ps`, `lsof`, `pmset` and two usage reads a second apart, every 60s | — | `DevSampling` in `Plugins/Dev/Sources/CapacityModels.swift` |
-| Memory | Kernel counters and pressure level every 3s; `ioreg` every 30s | — | `MemorySampling` in `Plugins/Memory/Sources/MemoryModels.swift` |
+| Memory | Kernel counters and pressure level every 3s; `ioreg` every 30s; a graph point about every 10s | A kernel read every 10s, so the pressure graph is full on open | `MemorySampling` in `Plugins/Memory/Sources/MemoryModels.swift` |
 | Disk | Volumes and `tmutil` every 30s; the read/write graph's `ioreg` every second; the overview scan every 3 h and the developer and simulator scans every 6 h, each folder one `du` capped at 5 min and each plan at 15 min | A due check every 15 min, unless `"backgroundScans": false` | `DiskSampling` in `Plugins/Disk/Sources/DiskModels.swift` |
 | Network | `nettop` and `lsof` every 30s; `networkQuality` only on the button | — | `NetworkSampling` in `Plugins/Network/Sources/NetworkModels.swift` |
 | CPU | Load average, thermal state and `pmset -g therm` every 10s; the headline, history, cluster bars and user/system split come from the 1-second feed | — | `CPUSampling` in `Plugins/CPU/Sources/CPUModels.swift` |
