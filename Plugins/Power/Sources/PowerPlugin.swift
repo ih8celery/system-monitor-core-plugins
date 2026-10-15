@@ -7,7 +7,7 @@ import SystemBarKit
 /// while the tab shows and every 10 seconds while it is hidden. Showing, a collect makes every
 /// read and publishes the snapshot on the main thread, where the panel observes it. Hidden, it
 /// makes only the one ioreg read of the battery driver, enough for the Mac's draw, and records
-/// that into the day's history, which is saved in the tab's data folder. Both run the battery-low
+/// that into the day's history, which is saved in the tab's data folder (see `PowerHistoryKeeper`). Both run the battery-low
 /// and not-charging notification rules from that same read, so they work with the window closed.
 /// Contributors follow the process feed instead, on their own 10-second cadence, so the first
 /// showing after launch does not sit empty for up to a minute waiting on `collect()`.
@@ -33,9 +33,19 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     /// When the charger last came or went. Only `sample()` touches it, and the host calls
     /// `collect()` on this plugin's one queue, so samples never overlap.
     private var sourceTracker = SourceChangeTracker()
+    /// Empty battery-driver replies in a row, and when the driver was last read. Hidden collects
+    /// only, like `sourceTracker`.
+    private var emptyDriverReplies = 0
+    private var lastDriverReadAt: Date?
+    /// A Mac with no battery answers ioreg with nothing every time: after this many empty
+    /// replies in a row, a hidden collect reads the driver only once a minute.
+    static let emptyRepliesBeforeBackOff = 6
+    static let backedOffReadInterval: TimeInterval = 60
+    /// The charge limit as last read, for hidden collects. `collect` only, like `sourceTracker`.
+    private var chargeLimitCache: ChargeLimitCache?
+    static let chargeLimitCacheLife: TimeInterval = 5 * 60
     /// The history as `collect()` keeps it; `history` is its copy on main.
-    private var recordedHistory: PowerHistory
-    private let store: PowerHistoryStore
+    private let historyKeeper: PowerHistoryKeeper
     private let showingLock = NSLock()
     private var isShowing = false
     /// What the notification rules remember. Touched only by `collect`, which the host calls one at a time.
@@ -54,11 +64,10 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
         parsed.problems.forEach { host.log("Power: \($0)") }
         settingsProblems = parsed.problems
         alerts = PowerAlertRules(config: parsed.config)
-        store = PowerHistoryStore.standard(dataDirectory: host.dataDirectory)
-        let now = clock()
-        let loaded = PowerHistory(points: store.load(now: now, log: host.log), now: now)
-        history = loaded
-        recordedHistory = loaded
+        historyKeeper = PowerHistoryKeeper(
+            store: PowerHistoryStore.standard(dataDirectory: host.dataDirectory), clock: clock, log: { host.log($0) }
+        )
+        history = historyKeeper.current
         super.init()
         contributors = PowerCollector.contributors(from: host.processes.value.topCPU)
         feedSubscription = host.processes.publisher.sink { [weak self] summary in
@@ -69,25 +78,34 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     public func collect() {
         guard showingLock.withLock({ isShowing }) else {
             let reading = hiddenSample()
-            alert(reading.battery, isSettling: reading.isSettling) { PowerCollector.chargeLimit(fileAt: chargeLimitFile) }
-            let history = record(reading.macWatts)
+            alert(reading.battery, isSettling: reading.isSettling) { cachedChargeLimit(for: reading.battery) }
+            guard let history = historyKeeper.record(reading.macWatts) else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.history = history
             }
             return
         }
         let next = sample()
+        chargeLimitCache = ChargeLimitCache(limit: next.chargeLimit, readAt: clock(), chargerState: next.batteryAlert.map(ChargerState.init))
         alert(next.batteryAlert, isSettling: next.isSettling) { next.chargeLimit }
-        let history = record(next.powerDraw?.macWatts)
+        let history = historyKeeper.record(next.powerDraw?.macWatts)
         DispatchQueue.main.async { [weak self] in
             self?.snapshot = next
-            self?.history = history
+            if let history { self?.history = history }
         }
     }
 
-    /// Main thread: the host showing or hiding the tab. Hidden, the pmset reads are not run.
+    /// Main thread: the host showing or hiding the tab. Hidden, the pmset reads are not run, and
+    /// the history is written, off the main thread.
     @MainActor public func visibilityChanged(isVisible: Bool) {
         showingLock.withLock { isShowing = isVisible }
+        guard !isVisible else { return }
+        let keeper = historyKeeper
+        DispatchQueue.global(qos: .utility).async { keeper.save() }
+    }
+
+    deinit {
+        historyKeeper.save()
     }
 
     /// One reading, remembering when the charger came or went so the next can tell whether
@@ -104,7 +122,13 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     /// window still holds when the tab opens. The Mac's draw is nil while settling.
     func hiddenSample() -> HiddenSample {
         let now = clock()
+        if emptyDriverReplies >= Self.emptyRepliesBeforeBackOff, let last = lastDriverReadAt,
+           abs(now.timeIntervalSince(last)) < Self.backedOffReadInterval {
+            return HiddenSample(macWatts: nil, battery: nil, isSettling: false)
+        }
         let entry = PowerCollector.readDriver(using: host).entry
+        lastDriverReadAt = now
+        emptyDriverReplies = entry == nil ? emptyDriverReplies + 1 : 0
         let isExternal = entry?["ExternalConnected"] as? Bool
         let next = sourceTracker.observing(isExternal, at: now)
         sourceTracker = next
@@ -124,20 +148,34 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
         result.notifications.forEach { host.notify(id: $0.id, title: $0.title, body: $0.body) }
     }
 
-    /// Adds the reading to the history and saves it once per new minute, so the file is written
-    /// at most once a minute. A failed save is logged and the history carries on in memory.
-    private func record(_ watts: Double?) -> PowerHistory {
+    /// The charge limit for the hidden rules, read again once the cached one is a few minutes old
+    /// or the charger came, went, or started or stopped charging.
+    private func cachedChargeLimit(for battery: BatteryAlertReading?) -> Int? {
         let now = clock()
-        let next = recordedHistory.recording(watts, at: now)
-        if next.points.last?.minute != recordedHistory.points.last?.minute {
-            do {
-                try store.save(next.points, now: now)
-            } catch {
-                host.log("Power: could not save the power history to \(store.fileURL.path): \(error.localizedDescription)")
-            }
+        let state = battery.map(ChargerState.init)
+        if let cache = chargeLimitCache, cache.chargerState == state,
+           abs(now.timeIntervalSince(cache.readAt)) < Self.chargeLimitCacheLife {
+            return cache.limit
         }
-        recordedHistory = next
-        return next
+        let limit = PowerCollector.chargeLimit(fileAt: chargeLimitFile)
+        chargeLimitCache = ChargeLimitCache(limit: limit, readAt: now, chargerState: state)
+        return limit
+    }
+
+    private struct ChargerState: Equatable {
+        let isExternal: Bool
+        let isCharging: Bool
+
+        init(_ battery: BatteryAlertReading) {
+            isExternal = battery.isExternal
+            isCharging = battery.isCharging
+        }
+    }
+
+    private struct ChargeLimitCache {
+        let limit: Int?
+        let readAt: Date
+        let chargerState: ChargerState?
     }
 
     /// What a hidden collect reads from the battery driver alone.

@@ -19,17 +19,18 @@ struct PowerFlow: Equatable {
     let chargerInWatts: Double?
 
     /// Nil without a charger reading from the battery driver. While `isSettling`, every arrow
-    /// keeps its place but drops its number: just after a plug or unplug even Amperage lags.
-    init?(draw: PowerDraw?, isExternal: Bool?, isSettling: Bool) {
+    /// keeps its place but drops its number: just after a plug or unplug even Amperage lags, so
+    /// the battery's direction comes from the driver's `isCharging` instead of its watts.
+    init?(draw: PowerDraw?, isExternal: Bool?, isSettling: Bool, isCharging driverSaysCharging: Bool = false) {
         guard let isExternal else { return nil }
         let mac = isSettling ? nil : draw?.macWatts
         let battery = isSettling ? nil : draw?.batteryWatts
-        let flow = draw?.batteryWatts ?? 0
-        let isCharging = flow >= idleBatteryWatts
-        let isGiving = flow <= -idleBatteryWatts
+        let flow = battery ?? 0
+        let isCharging = isSettling ? driverSaysCharging : flow >= idleBatteryWatts
+        let isGiving = !isSettling && flow <= -idleBatteryWatts
 
         isPluggedIn = isExternal
-        hasBattery = draw?.batteryWatts != nil
+        hasBattery = draw?.hasBattery ?? false
         if isExternal {
             chargerToMac = .active(mac)
             chargerToBattery = isCharging ? .active(battery) : .inactive

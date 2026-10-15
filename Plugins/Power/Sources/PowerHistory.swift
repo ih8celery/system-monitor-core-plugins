@@ -50,14 +50,17 @@ struct PowerHistory: Equatable {
         return Date(timeIntervalSince1970: seconds - seconds.truncatingRemainder(dividingBy: minuteLength))
     }
 
-    /// A copy with the reading applied. A nil reading is left out: no figure is not 0 W.
+    /// A copy with the reading applied. A nil reading is left out: no figure is not 0 W. The
+    /// reading joins the point for its minute wherever that is, so a clock set backward merges
+    /// into the minutes it repeats instead of adding duplicates after them.
     func recording(_ watts: Double?, at date: Date) -> PowerHistory {
         guard let watts else { return self }
         let minute = Self.minuteStart(of: date)
         var kept = points
-        if let last = kept.last, last.minute == minute {
-            let samples = last.samples + 1
-            kept[kept.count - 1] = MinutePoint(minute: minute, watts: last.watts + (watts - last.watts) / Double(samples), samples: samples)
+        if let index = kept.firstIndex(where: { $0.minute == minute }) {
+            let old = kept[index]
+            let samples = old.samples + 1
+            kept[index] = MinutePoint(minute: minute, watts: old.watts + (watts - old.watts) / Double(samples), samples: samples)
         } else {
             kept.append(MinutePoint(minute: minute, watts: watts, samples: 1))
         }

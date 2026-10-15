@@ -11,12 +11,16 @@ struct PowerDraw: Equatable {
     var batteryWatts: Double?
     /// The charger's rating, only while one is connected.
     var chargerRatedWatts: Int?
+    /// The Mac has a battery, whether or not its figures can be shown yet.
+    var hasBattery = false
 }
 
 extension PowerCollector {
     /// Nil when the entry is missing or holds none of the figures. `sourceJustChanged` is true
-    /// within `SourceChangeTracker.lagWindow` of a plug or unplug, while `PowerTelemetryData`
-    /// still lags.
+    /// within `SourceChangeTracker.lagWindow` of a plug or unplug. Then no watts are shown at all:
+    /// `PowerTelemetryData` lags, and so does Amperage (the 20:13 probe read -158 mA for 25 s and
+    /// more after unplugging while the Mac drew about 50 W). The charger's rating is not a
+    /// measurement, so it stays.
     static func powerDraw(from battery: [String: Any]?, sourceJustChanged: Bool) -> PowerDraw? {
         guard let battery else { return nil }
         let isExternal = battery["ExternalConnected"] as? Bool ?? false
@@ -27,13 +31,13 @@ extension PowerCollector {
         let adapterWatts = (battery["AdapterDetails"] as? [String: Any])?["Watts"] as? Int
 
         let mac: Double?
-        if !hasBattery {
+        if sourceJustChanged {
+            mac = nil
+        } else if !hasBattery {
             mac = powerIn
         } else if !isExternal {
             // Never the charger's input while unplugged, however stale the telemetry is.
             mac = positive(batteryFlow.map(abs))
-        } else if sourceJustChanged {
-            mac = nil
         } else {
             // What comes in, less what the battery takes (or plus what it gives).
             mac = positive(powerIn.map { $0 - (batteryFlow ?? 0) })
@@ -41,8 +45,9 @@ extension PowerCollector {
 
         let draw = PowerDraw(
             macWatts: mac,
-            batteryWatts: batteryFlow,
-            chargerRatedWatts: isExternal ? adapterWatts.flatMap { $0 > 0 ? $0 : nil } : nil
+            batteryWatts: sourceJustChanged ? nil : batteryFlow,
+            chargerRatedWatts: isExternal ? adapterWatts.flatMap { $0 > 0 ? $0 : nil } : nil,
+            hasBattery: hasBattery
         )
         return draw == PowerDraw() ? nil : draw
     }

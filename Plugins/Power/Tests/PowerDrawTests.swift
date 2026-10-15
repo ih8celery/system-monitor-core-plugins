@@ -61,19 +61,24 @@ enum PowerDrawTests {
         expect(reading?.chargerRatedWatts == nil, "no charger is shown on battery")
     }
 
+    /// The 20:13 probe: 25 s and more after unplugging, Amperage still read -158 mA (2.0 W) while
+    /// the Mac drew about 50 W. Inside the settle window nothing is shown, not even V x A.
     private static func testJustUnpluggedNeverShowsChargerInput() {
-        for justChanged in [true, false] {
-            let reading = draw(PowerDrawFixtures.justUnplugged, sourceJustChanged: justChanged)
-            expect(!near(reading?.macWatts, 84.81) && !near(reading?.macWatts, 87.03),
-                   "stale charger input is never the Mac's figure while unplugged, got \(String(describing: reading?.macWatts))")
-            expect(near(reading?.macWatts, 1.973), "it is the battery's V x |A| instead, got \(String(describing: reading?.macWatts))")
-        }
+        let settling = draw(PowerDrawFixtures.justUnplugged, sourceJustChanged: true)
+        expect(settling?.macWatts == nil && settling?.batteryWatts == nil,
+               "just unplugged, neither the stale charger input nor the stale 2.0 W is shown, got \(String(describing: settling))")
+        expect(settling?.hasBattery == true, "the battery is still known to be there")
+        let settled = draw(PowerDrawFixtures.justUnplugged, sourceJustChanged: false)
+        expect(near(settled?.macWatts, 1.973), "outside the window the Mac is the battery's V x |A|, never the charger's input, got \(String(describing: settled?.macWatts))")
     }
 
     private static func testJustPluggedInWaitsForTheTelemetry() {
         let reading = draw(PowerDrawFixtures.acCharging, sourceJustChanged: true)
         expect(reading?.macWatts == nil, "the minute after plugging in, the lagging telemetry is not used, got \(String(describing: reading?.macWatts))")
-        expect(near(reading?.batteryWatts, 50.220), "but the battery's own V x A still shows")
+        expect(reading?.batteryWatts == nil, "nor the battery's V x A, whose Amperage lags too, got \(String(describing: reading?.batteryWatts))")
+        expect(reading?.chargerRatedWatts == 94, "the charger's rating is not a measurement, so it stays")
+        let noBattery = draw(PowerDrawFixtures.noBatteryWithInput, sourceJustChanged: true)
+        expect(noBattery?.macWatts == nil, "with no battery the charger input waits too")
     }
 
     private static func testAmperageReadsAsSignedWhenPrintedUnsigned() {

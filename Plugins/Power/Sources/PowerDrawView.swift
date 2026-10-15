@@ -6,6 +6,7 @@ import SystemBarKit
 struct PowerDrawView: View {
     let draw: PowerDraw?
     let flow: PowerFlow?
+    let isSettling: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -15,7 +16,7 @@ struct PowerDrawView: View {
                     .padding(.vertical, 6)
             }
             if pills.isEmpty {
-                Text("This Mac reports no power figures.")
+                Text(powerDrawPlaceholder(isSettling: isSettling))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -37,4 +38,9 @@ struct PowerDrawView: View {
         ]
         .compactMap { $0 }
     }
+}
+
+/// What the section says when it has no figure to show.
+func powerDrawPlaceholder(isSettling: Bool) -> String {
+    isSettling ? "Waiting for the figures to settle after the charger came or went." : "This Mac reports no power figures."
 }

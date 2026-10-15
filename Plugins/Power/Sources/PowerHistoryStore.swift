@@ -52,11 +52,12 @@ struct PowerHistoryStore {
         try Self.encoder.encode(file).write(to: fileURL, options: .atomic)
     }
 
-    /// Whole-second ISO 8601 dates and sorted keys, so the file reads by eye.
+    /// Whole-second ISO 8601 dates and sorted keys, compact: a day of points is about half the
+    /// size it is pretty-printed.
     static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        encoder.outputFormatting = [.sortedKeys]
         return encoder
     }()
 

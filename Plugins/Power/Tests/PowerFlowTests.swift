@@ -12,13 +12,15 @@ enum PowerFlowTests {
         testAMissingFigureShowsItsArrowWithoutANumber()
         testABatteryHelpingTheChargerFeedsTheMacToo()
         testNoChargerReadingMeansNoPicture()
+        testTheDrawSectionSaysWhyItHasNoFigures()
         testCollectCarriesTheSettleWindow()
     }
 
-    private static func flow(_ ioreg: String, isSettling: Bool = false) -> PowerFlow? {
+    private static func flow(_ ioreg: String, isSettling: Bool = false, isCharging: Bool? = nil) -> PowerFlow? {
         let entry = PowerCollector.batteryEntry(ioreg)
         let draw = PowerCollector.powerDraw(from: entry, sourceJustChanged: isSettling)
-        return PowerFlow(draw: draw, isExternal: entry?["ExternalConnected"] as? Bool, isSettling: isSettling)
+        let charging = isCharging ?? (entry?["IsCharging"] as? Bool ?? false)
+        return PowerFlow(draw: draw, isExternal: entry?["ExternalConnected"] as? Bool, isSettling: isSettling, isCharging: charging)
     }
 
     private static func near(_ link: FlowLink?, _ expected: Double) -> Bool {
@@ -49,12 +51,16 @@ enum PowerFlowTests {
     }
 
     private static func testSettlingShowsTheArrowsWithoutNumbers() {
-        let plugged = flow(PowerDrawFixtures.acCharging, isSettling: true)
+        let plugged = flow(PowerDrawFixtures.acCharging, isSettling: true, isCharging: true)
         expect(plugged?.chargerToMac == .active(nil) && plugged?.chargerToBattery == .active(nil),
                "just plugged in, the arrows show with no numbers, got \(String(describing: plugged))")
         expect(plugged?.chargerInWatts == nil, "and the charger's input is not guessed")
         let unplugged = flow(PowerDrawFixtures.justUnplugged, isSettling: true)
         expect(unplugged?.batteryToMac == .active(nil), "just unplugged, the stale 2.0 W is not drawn, got \(String(describing: unplugged))")
+        expect(unplugged?.hasBattery == true, "and the battery is still drawn")
+        let held = flow(PowerDrawFixtures.acCharging, isSettling: true, isCharging: false)
+        expect(held?.chargerToBattery == .inactive && held?.batteryToMac == .inactive,
+               "just plugged in and not charging, no battery arrow lights from the stale Amperage, got \(String(describing: held))")
     }
 
     private static func testAMissingFigureShowsItsArrowWithoutANumber() {
@@ -68,6 +74,11 @@ enum PowerFlowTests {
         let picture = PowerFlow(draw: draw, isExternal: true, isSettling: false)
         expect(picture?.batteryToMac == .active(16) && picture?.chargerToBattery == .inactive, "a battery topping up the charger feeds the Mac")
         expect(picture?.chargerInWatts == 94, "and the charger puts in the rest, 110 - 16 W")
+    }
+
+    private static func testTheDrawSectionSaysWhyItHasNoFigures() {
+        expect(powerDrawPlaceholder(isSettling: true) == "Waiting for the figures to settle after the charger came or went.", "while settling the section says so")
+        expect(powerDrawPlaceholder(isSettling: false) == "This Mac reports no power figures.", "otherwise it says there are none")
     }
 
     private static func testNoChargerReadingMeansNoPicture() {

@@ -21,6 +21,9 @@ enum PowerHistoryTests {
         testAMissingOrCorruptFileIsEmptyWithALogLine()
         testLoadAndSaveDropOldPoints()
         testHistorySurvivesARelaunch()
+        testTheHistoryIsSavedEveryTenMinutesAndOnHiding()
+        testAReadingMergesIntoItsOwnMinuteWhereverItIs()
+        testAClockSetBackTenMinutesKeepsRecordingAndSaving()
         testAHiddenCollectRunsOnlyIoreg()
         testAShowingCollectRunsEverythingAndRecords()
         testHiddenSamplesKeepTheSettleWindow()
@@ -101,7 +104,7 @@ enum PowerHistoryTests {
         let file = store()
         try? file.save([old, recent], now: at(PowerHistory.window + 30))
         let data = (try? Data(contentsOf: file.fileURL)) ?? Data()
-        expect(!String(decoding: data, as: UTF8.self).contains("\"watts\" : 9"), "save leaves out points older than 24 h")
+        expect(!String(decoding: data, as: UTF8.self).contains("\"watts\":9"), "save leaves out points older than 24 h")
         let raw = store()
         try? FileManager.default.createDirectory(at: raw.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? PowerHistoryStore.encoder.encode(PowerHistoryFile(version: PowerHistoryFile.currentVersion, points: [old, recent])).write(to: raw.fileURL)
@@ -121,15 +124,76 @@ enum PowerHistoryTests {
     private static func testHistorySurvivesARelaunch() {
         let dataDirectory = folder.appendingPathComponent("relaunch")
         let clock = LockedDate(start)
-        let first = plugin(PowerDrawFixtures.acIdle, folder: dataDirectory, clock: clock)
-        first.collect()
+        var first: PowerPlugin? = plugin(PowerDrawFixtures.acIdle, folder: dataDirectory, clock: clock)
+        first?.collect()
         clock.advance(by: 60)
-        first.collect()
-        waitUntil { first.history.points.count == 2 }
-        expect(FileManager.default.fileExists(atPath: dataDirectory.appendingPathComponent(PowerHistoryStore.fileName).path), "the history is saved in the tab's data folder")
+        first?.collect()
+        waitUntil { first?.history.points.count == 2 }
+        first = nil
+        expect(FileManager.default.fileExists(atPath: dataDirectory.appendingPathComponent(PowerHistoryStore.fileName).path), "the history is saved in the tab's data folder when the plugin goes away")
         let relaunched = plugin(PowerDrawFixtures.acIdle, folder: dataDirectory, clock: clock)
         expect(relaunched.history.points.map(\.minute) == [start, at(60)], "a relaunch loads the saved minutes, got \(relaunched.history.points)")
         expect(near(relaunched.history.points.first?.watts, 46.496), "with their watts")
+    }
+
+    /// A minute-by-minute rewrite was about 200 MB a day of SSD writes; now every 10 minutes, when
+    /// the tab is hidden, and when the plugin goes away, in compact JSON.
+    private static func testTheHistoryIsSavedEveryTenMinutesAndOnHiding() {
+        let dataDirectory = folder.appendingPathComponent("cadence")
+        let file = PowerHistoryStore.standard(dataDirectory: dataDirectory)
+        let clock = LockedDate(start)
+        let saved = { file.load(now: clock.value, log: { _ in }).count }
+        var tab: PowerPlugin? = plugin(PowerDrawFixtures.acIdle, folder: dataDirectory, clock: clock)
+        for _ in 0..<10 {
+            tab?.collect()
+            clock.advance(by: 60)
+        }
+        expect(!FileManager.default.fileExists(atPath: file.fileURL.path), "nine minutes of samples are not written yet")
+        tab?.collect()
+        expect(saved() == 11, "ten minutes after the last save the eleven minutes are written, got \(saved())")
+        clock.advance(by: 60)
+        tab?.collect()
+        expect(saved() == 11, "a minute later nothing is written")
+        tab?.visibilityChanged(isVisible: true)
+        tab?.visibilityChanged(isVisible: false)
+        waitUntil { saved() == 12 }
+        expect(saved() == 12, "hiding the tab saves at once, got \(saved())")
+        clock.advance(by: 60)
+        tab?.collect()
+        tab = nil
+        expect(saved() == 13, "the plugin going away saves too, got \(saved())")
+        let text = String(decoding: (try? Data(contentsOf: file.fileURL)) ?? Data(), as: UTF8.self)
+        expect(!text.contains("\n"), "the file is compact JSON, not pretty-printed")
+    }
+
+    private static func testAReadingMergesIntoItsOwnMinuteWhereverItIs() {
+        let history = recorded([(0, 10), (60, 20), (120, 30), (30, 20)])
+        expect(history.points.map(\.minute) == [start, at(60), at(120)], "a reading for an earlier minute joins that minute, no duplicate, got \(history.points.map(\.minute))")
+        expect(near(history.points.first?.watts, 15) && history.points.first?.samples == 2, "and averages into it, got \(String(describing: history.points.first))")
+        let earlier = history.recording(5, at: at(-120))
+        expect(earlier.points.map(\.minute) == [at(-120), start, at(60), at(120)], "a minute before all the others goes first, got \(earlier.points.map(\.minute))")
+    }
+
+    /// The clock set back 10 minutes, as a time-zone or NTP correction can do.
+    private static func testAClockSetBackTenMinutesKeepsRecordingAndSaving() {
+        let dataDirectory = folder.appendingPathComponent("clock-back")
+        let file = PowerHistoryStore.standard(dataDirectory: dataDirectory)
+        let clock = LockedDate(start)
+        let tab = plugin(PowerDrawFixtures.acIdle, folder: dataDirectory, clock: clock)
+        for _ in 0...10 {
+            tab.collect()
+            clock.advance(by: 60)
+        }
+        clock.advance(by: -60 - 10 * 60)
+        for _ in 0..<3 {
+            tab.collect()
+            clock.advance(by: 60)
+        }
+        waitUntil { tab.history.points.first?.samples == 2 }
+        let minutes = tab.history.points.map(\.minute)
+        expect(minutes.count == 11 && Set(minutes).count == 11, "after the jump each sample joins its minute, no duplicates, got \(minutes.count) points")
+        let saved = file.load(now: clock.value, log: { _ in })
+        expect(saved.first?.samples == 2, "and a save still happens, ten minutes from the last by the clock's distance, got \(String(describing: saved.first))")
     }
 
     private static func testAHiddenCollectRunsOnlyIoreg() {
@@ -168,6 +232,9 @@ enum PowerHistoryTests {
         expect(tab.sample().powerDraw?.macWatts == nil, "opened 40 s after the change, the Mac figure still waits")
         clock.advance(by: 70)
         expect(near(tab.hiddenSample().macWatts, 27.516), "100 s after the change, hidden samples use the telemetry")
+        clock.advance(by: 10)
+        answer.value = PowerDrawFixtures.justUnplugged
+        expect(tab.hiddenSample().macWatts == nil, "just unplugged, the stale 2.0 W is not recorded into the minute")
     }
 
     private static func testTheGraphBreaksAtGaps() {
