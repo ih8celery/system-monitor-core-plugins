@@ -15,8 +15,12 @@ struct PowerPanel: View {
                 HStack(spacing: 10) {
                     StatPill(label: "Source", value: plugin.snapshot.powerSource)
                     if let percent = plugin.snapshot.batteryPercent {
-                        StatPill(label: "Battery", value: batteryStatLabel(percent: percent, state: plugin.snapshot.chargeState))
+                        StatPill(label: "Battery", value: batteryStatLabel(percent: percent, state: plugin.snapshot.chargeState, limit: plugin.snapshot.chargeLimit))
                     }
+                }
+
+                if let percent = plugin.snapshot.batteryPercent {
+                    BatteryBarView(percent: percent, limit: plugin.snapshot.chargeLimit)
                 }
 
                 if let detail = plugin.snapshot.batteryDetail {

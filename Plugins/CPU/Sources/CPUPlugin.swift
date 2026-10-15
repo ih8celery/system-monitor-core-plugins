@@ -31,6 +31,11 @@ public final class CPUPlugin: NSObject, TabPlugin, ObservableObject {
     /// no cluster names.
     let clusters: [CPUCluster]?
     private let host: HostServices
+    private let rules: CPURuleEngine
+    private let now: @Sendable () -> Date
+    /// Rules are evaluated off the main thread, one reading at a time and in order.
+    private let ruleQueue = DispatchQueue(label: "systembar.cpu.rules", qos: .utility)
+    private var ruleThermalObserver: NSObjectProtocol?
     private var feedSubscriptions: [AnyCancellable] = []
     private var thermalObserver: NSObjectProtocol?
     private var gpuTimer: DispatchSourceTimer?
@@ -43,21 +48,53 @@ public final class CPUPlugin: NSObject, TabPlugin, ObservableObject {
         return queue
     }()
 
-    @MainActor public init(host: HostServices) {
+    @MainActor public convenience init(host: HostServices) {
+        self.init(host: host, now: { Date() })
+    }
+
+    /// `now` is the rules' clock; a test moves it by hand.
+    @MainActor init(host: HostServices, now: @escaping @Sendable () -> Date) {
         self.host = host
+        self.now = now
+        rules = CPURuleEngine(host: host, thermalState: ProcessInfo.processInfo.thermalState)
         clusters = CPUCollector.clusters()
         super.init()
         fastStats = host.fastStats.value
         processes = host.processes.value
+        observeRuleThermalChanges()
         feedSubscriptions = [
-            host.fastStats.publisher.sink { [weak self] snapshot in self?.fastStats = snapshot },
+            host.fastStats.publisher.sink { [weak self] snapshot in
+                self?.fastStats = snapshot
+                self?.evaluateCPURule(percent: snapshot.cpuUsagePercent)
+            },
             host.processes.publisher.sink { [weak self] summary in self?.processes = summary },
         ]
     }
 
     deinit {
         stopObservingThermalChanges()
+        if let ruleThermalObserver { NotificationCenter.default.removeObserver(ruleThermalObserver) }
         gpuTimer?.cancel()
+    }
+
+    /// The thermal rule works whether or not the window is open: this observer is an event (no
+    /// sampling, no subprocess). The CPU rule rides the host's 1-second feed, which today stops when
+    /// the popover closes, so that rule works only while the window is open until SystemBar's feed
+    /// runs in the background (host issue swift-ui-system-monitor-125.6, H4). The tab does not work
+    /// around that; `SustainedCPUTracker` treats the pause as a gap and starts its window again.
+    private func observeRuleThermalChanges() {
+        ruleThermalObserver = NotificationCenter.default.addObserver(
+            forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            let state = ProcessInfo.processInfo.thermalState
+            self.ruleQueue.async { self.rules.observeThermal(state) }
+        }
+    }
+
+    private func evaluateCPURule(percent: Double) {
+        let moment = now()
+        ruleQueue.async { [rules] in rules.observeCPU(percent: percent, at: moment) }
     }
 
     /// A change is worth one read now rather than up to ten seconds later. Registered from a

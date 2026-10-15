@@ -4,7 +4,7 @@ import SystemBarKit
 /// Two pmset reads, one ioreg read of the battery driver, and the parsing of them. Pure apart
 /// from `collect(using:)`.
 enum PowerCollector {
-    static func collect(using host: HostServices) -> PowerSnapshot {
+    static func collect(using host: HostServices, chargeLimitFile: URL = PowerCollector.chargeLimitFile) -> PowerSnapshot {
         let battery = host.run(path: "/usr/bin/pmset", arguments: ["-g", "batt"])
         let driver = host.run(path: ioregPath, arguments: ioregArguments)
         let assertions = host.run(path: "/usr/bin/pmset", arguments: ["-g", "assertions"])
@@ -22,6 +22,7 @@ enum PowerCollector {
             batteryPercent: parsedBattery.percent,
             chargeState: driverEntry.flatMap(chargeState(from:)),
             batteryDetail: driverEntry.flatMap(batteryDetail(from:)),
+            chargeLimit: chargeLimit(fileAt: chargeLimitFile),
             sleepAssertions: parsedAssertions,
             status: status.isEmpty ? "Power sample OK" : status.joined(separator: ", "),
             health: SampleHealth(isOK: status.isEmpty)
