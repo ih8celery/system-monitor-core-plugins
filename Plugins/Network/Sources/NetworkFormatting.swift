@@ -9,6 +9,15 @@ func networkRateText(_ bytesPerSecond: Double) -> String {
     fileRateString(bytesPerSecond)
 }
 
+/// A Down or Up card's total, in Finder's units. Nil while the host has not read the counters yet
+/// (the feed holds 0 until then), so the card shows nothing rather than a false 0 B.
+func sinceStartupText(_ bytes: UInt64) -> String? {
+    guard bytes > 0 else { return nil }
+    return "\(fileByteString(bytes)) since the Mac started up"
+}
+
+let sinceStartupHelp = "Everything the Mac's network ports have moved since the Mac started up, not just while SystemBar was open. A port you unplug takes its bytes with it, so the figure can drop."
+
 func speedTestRateText(_ megabitsPerSecond: Double?) -> String {
     guard let megabitsPerSecond else { return "-- Mbps" }
     return String(format: megabitsPerSecond >= 100 ? "%.0f Mbps" : "%.1f Mbps", max(0, megabitsPerSecond))
