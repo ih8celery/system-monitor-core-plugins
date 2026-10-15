@@ -7,6 +7,7 @@ struct CorePluginTests {
     static func main() {
         MainActor.assumeIsolated {
             CPUTests.runAll()
+            CPURulesTests.runAll()
             PowerTests.runAll()
             DiskTests.runAll()
             DiskLedgerTests.runAll()
