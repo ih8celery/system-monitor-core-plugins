@@ -20,9 +20,18 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     @Published private(set) var contributors: [PowerContributor] = []
     private let host: HostServices
     private var feedSubscription: AnyCancellable?
+    private let clock: @Sendable () -> Date
+    /// When the charger last came or went. Only `sample()` touches it, and the host calls
+    /// `collect()` on this plugin's one queue, so samples never overlap.
+    private var sourceTracker = SourceChangeTracker()
 
-    @MainActor public init(host: HostServices) {
+    @MainActor public convenience init(host: HostServices) {
+        self.init(host: host, clock: { Date() })
+    }
+
+    @MainActor init(host: HostServices, clock: @escaping @Sendable () -> Date) {
         self.host = host
+        self.clock = clock
         super.init()
         contributors = PowerCollector.contributors(from: host.processes.value.topCPU)
         feedSubscription = host.processes.publisher.sink { [weak self] summary in
@@ -31,10 +40,20 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     }
 
     public func collect() {
-        let next = PowerCollector.collect(using: host)
+        let next = sample()
         DispatchQueue.main.async { [weak self] in
             self?.snapshot = next
         }
+    }
+
+    /// One reading, remembering when the charger came or went so the next can tell whether
+    /// the telemetry has caught up.
+    func sample() -> PowerSnapshot {
+        let now = clock()
+        let before = sourceTracker
+        let next = PowerCollector.collect(using: host) { before.observing($0, at: now).isSettling(at: now) }
+        sourceTracker = before.observing(next.isExternal, at: now)
+        return next
     }
 
     @MainActor public func makeView() -> AnyView {

@@ -23,6 +23,10 @@ struct PowerPanel: View {
                     BatteryBarView(percent: percent, limit: plugin.snapshot.chargeLimit)
                 }
 
+                if plugin.snapshot.hasDriverReading {
+                    PowerDrawView(draw: plugin.snapshot.powerDraw)
+                }
+
                 if let detail = plugin.snapshot.batteryDetail {
                     BatteryDetailView(detail: detail, state: plugin.snapshot.chargeState)
                 }

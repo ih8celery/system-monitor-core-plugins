@@ -24,6 +24,7 @@ enum PowerTests {
         testPluginIdentityMatchesTheOldTab()
         PowerBatteryDetailTests.runAll()
         PowerChargeLimitTests.runAll()
+        PowerDrawTests.runAll()
     }
 
     private static func testBatteryParsing() {
