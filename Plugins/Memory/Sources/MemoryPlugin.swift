@@ -4,7 +4,7 @@ import SwiftUI
 import SystemBarKit
 
 /// The Memory tab as a bundle. The host calls `collect()` on this plugin's queue every 3 seconds
-/// while the tab shows; each collect reads the kernel's memory figures and pressure level (ioreg
+/// while the tab shows and every 10 seconds while it is hidden, which keeps the pressure graph full; each collect reads the kernel's memory figures and pressure level (ioreg
 /// only every 30 seconds) and publishes on main. The top-memory list follows the process feed.
 @objc(SystemBarMemoryPlugin)
 public final class MemoryPlugin: NSObject, TabPlugin, ObservableObject {
@@ -14,6 +14,7 @@ public final class MemoryPlugin: NSObject, TabPlugin, ObservableObject {
     public let accent = Palette.good
     public let refreshInterval: TimeInterval = MemorySampling.refreshInterval
     public let sharedFeeds: Set<SharedFeed> = [.processes]
+    public let backgroundInterval: TimeInterval? = MemorySampling.backgroundInterval
 
     @Published private(set) var stats = MemoryStatsSnapshot()
     @Published private(set) var processes = ProcessSummary()

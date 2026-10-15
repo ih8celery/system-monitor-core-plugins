@@ -40,7 +40,7 @@ jq -n --arg dir "$PWD/build/PlugIns" '{plugins: [$ARGS.positional[] | {path: "\(
 b="$PWD/build/PlugIns"
 expected="ok power Power $b/Power.bundle
 ok dev Dev $b/Dev.bundle
-ok memory Memory $b/Memory.bundle
+ok memory Memory $b/Memory.bundle background every 10s
 ok disk Disk $b/Disk.bundle background every 900s
 ok network Network $b/Network.bundle
 ok cpu CPU $b/CPU.bundle"
