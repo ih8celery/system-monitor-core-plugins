@@ -7,6 +7,7 @@ struct CorePluginTests {
     static func main() {
         MainActor.assumeIsolated {
             CPUTests.runAll()
+            CPURulesTests.runAll()
             PowerTests.runAll()
             DiskTests.runAll()
             DiskLedgerTests.runAll()
@@ -14,6 +15,7 @@ struct CorePluginTests {
             DiskStoreTests.runAll()
             DiskScanTests.runAll()
             DiskActivityTests.runAll()
+            DiskLowSpaceTests.runAll()
             MemoryTests.runAll()
             NetworkTests.runAll()
             NetworkWiFiTests.runAll()
