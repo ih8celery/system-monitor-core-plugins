@@ -7,7 +7,7 @@ import SystemBarKit
 /// while the tab shows and every 10 seconds while it is hidden. Showing, a collect makes every
 /// read and publishes the snapshot on the main thread, where the panel observes it. Hidden, it
 /// makes only the one ioreg read of the battery driver, enough for the Mac's draw, and records
-/// that into the day's history, which is saved in the tab's data folder. Both run the battery-low
+/// that into the day's history, which is saved in the tab's data folder (see `PowerHistoryKeeper`). Both run the battery-low
 /// and not-charging notification rules from that same read, so they work with the window closed.
 /// Contributors follow the process feed instead, on their own 10-second cadence, so the first
 /// showing after launch does not sit empty for up to a minute waiting on `collect()`.
@@ -34,8 +34,7 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
     /// `collect()` on this plugin's one queue, so samples never overlap.
     private var sourceTracker = SourceChangeTracker()
     /// The history as `collect()` keeps it; `history` is its copy on main.
-    private var recordedHistory: PowerHistory
-    private let store: PowerHistoryStore
+    private let historyKeeper: PowerHistoryKeeper
     private let showingLock = NSLock()
     private var isShowing = false
     /// What the notification rules remember. Touched only by `collect`, which the host calls one at a time.
@@ -54,11 +53,10 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
         parsed.problems.forEach { host.log("Power: \($0)") }
         settingsProblems = parsed.problems
         alerts = PowerAlertRules(config: parsed.config)
-        store = PowerHistoryStore.standard(dataDirectory: host.dataDirectory)
-        let now = clock()
-        let loaded = PowerHistory(points: store.load(now: now, log: host.log), now: now)
-        history = loaded
-        recordedHistory = loaded
+        historyKeeper = PowerHistoryKeeper(
+            store: PowerHistoryStore.standard(dataDirectory: host.dataDirectory), clock: clock, log: { host.log($0) }
+        )
+        history = historyKeeper.current
         super.init()
         contributors = PowerCollector.contributors(from: host.processes.value.topCPU)
         feedSubscription = host.processes.publisher.sink { [weak self] summary in
@@ -85,9 +83,17 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
         }
     }
 
-    /// Main thread: the host showing or hiding the tab. Hidden, the pmset reads are not run.
+    /// Main thread: the host showing or hiding the tab. Hidden, the pmset reads are not run, and
+    /// the history is written, off the main thread.
     @MainActor public func visibilityChanged(isVisible: Bool) {
         showingLock.withLock { isShowing = isVisible }
+        guard !isVisible else { return }
+        let keeper = historyKeeper
+        DispatchQueue.global(qos: .utility).async { keeper.save() }
+    }
+
+    deinit {
+        historyKeeper.save()
     }
 
     /// One reading, remembering when the charger came or went so the next can tell whether
@@ -124,20 +130,8 @@ public final class PowerPlugin: NSObject, TabPlugin, ObservableObject {
         result.notifications.forEach { host.notify(id: $0.id, title: $0.title, body: $0.body) }
     }
 
-    /// Adds the reading to the history and saves it once per new minute, so the file is written
-    /// at most once a minute. A failed save is logged and the history carries on in memory.
     private func record(_ watts: Double?) -> PowerHistory {
-        let now = clock()
-        let next = recordedHistory.recording(watts, at: now)
-        if next.points.last?.minute != recordedHistory.points.last?.minute {
-            do {
-                try store.save(next.points, now: now)
-            } catch {
-                host.log("Power: could not save the power history to \(store.fileURL.path): \(error.localizedDescription)")
-            }
-        }
-        recordedHistory = next
-        return next
+        historyKeeper.record(watts)
     }
 
     /// What a hidden collect reads from the battery driver alone.

@@ -21,6 +21,7 @@ enum PowerHistoryTests {
         testAMissingOrCorruptFileIsEmptyWithALogLine()
         testLoadAndSaveDropOldPoints()
         testHistorySurvivesARelaunch()
+        testTheHistoryIsSavedEveryTenMinutesAndOnHiding()
         testAHiddenCollectRunsOnlyIoreg()
         testAShowingCollectRunsEverythingAndRecords()
         testHiddenSamplesKeepTheSettleWindow()
@@ -101,7 +102,7 @@ enum PowerHistoryTests {
         let file = store()
         try? file.save([old, recent], now: at(PowerHistory.window + 30))
         let data = (try? Data(contentsOf: file.fileURL)) ?? Data()
-        expect(!String(decoding: data, as: UTF8.self).contains("\"watts\" : 9"), "save leaves out points older than 24 h")
+        expect(!String(decoding: data, as: UTF8.self).contains("\"watts\":9"), "save leaves out points older than 24 h")
         let raw = store()
         try? FileManager.default.createDirectory(at: raw.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? PowerHistoryStore.encoder.encode(PowerHistoryFile(version: PowerHistoryFile.currentVersion, points: [old, recent])).write(to: raw.fileURL)
@@ -121,15 +122,46 @@ enum PowerHistoryTests {
     private static func testHistorySurvivesARelaunch() {
         let dataDirectory = folder.appendingPathComponent("relaunch")
         let clock = LockedDate(start)
-        let first = plugin(PowerDrawFixtures.acIdle, folder: dataDirectory, clock: clock)
-        first.collect()
+        var first: PowerPlugin? = plugin(PowerDrawFixtures.acIdle, folder: dataDirectory, clock: clock)
+        first?.collect()
         clock.advance(by: 60)
-        first.collect()
-        waitUntil { first.history.points.count == 2 }
-        expect(FileManager.default.fileExists(atPath: dataDirectory.appendingPathComponent(PowerHistoryStore.fileName).path), "the history is saved in the tab's data folder")
+        first?.collect()
+        waitUntil { first?.history.points.count == 2 }
+        first = nil
+        expect(FileManager.default.fileExists(atPath: dataDirectory.appendingPathComponent(PowerHistoryStore.fileName).path), "the history is saved in the tab's data folder when the plugin goes away")
         let relaunched = plugin(PowerDrawFixtures.acIdle, folder: dataDirectory, clock: clock)
         expect(relaunched.history.points.map(\.minute) == [start, at(60)], "a relaunch loads the saved minutes, got \(relaunched.history.points)")
         expect(near(relaunched.history.points.first?.watts, 46.496), "with their watts")
+    }
+
+    /// A minute-by-minute rewrite was about 200 MB a day of SSD writes; now every 10 minutes, when
+    /// the tab is hidden, and when the plugin goes away, in compact JSON.
+    private static func testTheHistoryIsSavedEveryTenMinutesAndOnHiding() {
+        let dataDirectory = folder.appendingPathComponent("cadence")
+        let file = PowerHistoryStore.standard(dataDirectory: dataDirectory)
+        let clock = LockedDate(start)
+        let saved = { file.load(now: clock.value, log: { _ in }).count }
+        var tab: PowerPlugin? = plugin(PowerDrawFixtures.acIdle, folder: dataDirectory, clock: clock)
+        for _ in 0..<10 {
+            tab?.collect()
+            clock.advance(by: 60)
+        }
+        expect(!FileManager.default.fileExists(atPath: file.fileURL.path), "nine minutes of samples are not written yet")
+        tab?.collect()
+        expect(saved() == 11, "ten minutes after the last save the eleven minutes are written, got \(saved())")
+        clock.advance(by: 60)
+        tab?.collect()
+        expect(saved() == 11, "a minute later nothing is written")
+        tab?.visibilityChanged(isVisible: true)
+        tab?.visibilityChanged(isVisible: false)
+        waitUntil { saved() == 12 }
+        expect(saved() == 12, "hiding the tab saves at once, got \(saved())")
+        clock.advance(by: 60)
+        tab?.collect()
+        tab = nil
+        expect(saved() == 13, "the plugin going away saves too, got \(saved())")
+        let text = String(decoding: (try? Data(contentsOf: file.fileURL)) ?? Data(), as: UTF8.self)
+        expect(!text.contains("\n"), "the file is compact JSON, not pretty-printed")
     }
 
     private static func testAHiddenCollectRunsOnlyIoreg() {
