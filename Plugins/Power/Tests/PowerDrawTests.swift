@@ -36,15 +36,19 @@ enum PowerDrawTests {
         expect(reading?.chargerRatedWatts == 94, "the charger is its rated 94 W, got \(String(describing: reading?.chargerRatedWatts))")
     }
 
+    /// The real capture: SystemPowerIn includes the charge current (19.556 V x 3.975 A in is the
+    /// same 77.7 W), so the battery's share comes off it.
     private static func testACChargingTakesTheBatteryShareOff() {
         let reading = draw(PowerDrawFixtures.acCharging)
-        expect(near(reading?.batteryWatts, 24.6), "12.3 V x 2 A into the battery is +24.6 W, got \(String(describing: reading?.batteryWatts))")
-        expect(near(reading?.macWatts, 45.4), "70 W in less 24.6 W charging leaves the Mac 45.4 W, got \(String(describing: reading?.macWatts))")
+        expect(near(reading?.batteryWatts, 50.220), "11.529 V x 4.356 A into the battery is +50.2 W, got \(String(describing: reading?.batteryWatts))")
+        expect(near(reading?.macWatts, 27.516), "77.7 W in less 50.2 W charging leaves the Mac 27.5 W, got \(String(describing: reading?.macWatts))")
     }
 
-    /// The telemetry's BatteryPower and SystemLoad may not move the figures.
+    /// In the capture the telemetry's BatteryPower is -6.2 W while the battery takes +50.2 W, and
+    /// SystemLoad reads 83.9 W. Neither may move the figures.
     private static func testACIgnoresTheTelemetrysBatteryAndLoadFigures() {
         let reading = draw(PowerDrawFixtures.acCharging)
+        expect(!near(reading?.batteryWatts, -6.199) && !near(reading?.macWatts, 83.935), "BatteryPower and SystemLoad are not the figures")
         let otherTelemetry = draw(PowerDrawFixtures.acChargingWith(systemLoad: 1000, batteryPower: 99000))
         expect(otherTelemetry == reading, "changing BatteryPower and SystemLoad changes nothing, got \(String(describing: otherTelemetry))")
     }
@@ -69,7 +73,7 @@ enum PowerDrawTests {
     private static func testJustPluggedInWaitsForTheTelemetry() {
         let reading = draw(PowerDrawFixtures.acCharging, sourceJustChanged: true)
         expect(reading?.macWatts == nil, "the minute after plugging in, the lagging telemetry is not used, got \(String(describing: reading?.macWatts))")
-        expect(near(reading?.batteryWatts, 24.6), "but the battery's own V x A still shows")
+        expect(near(reading?.batteryWatts, 50.220), "but the battery's own V x A still shows")
     }
 
     private static func testAmperageReadsAsSignedWhenPrintedUnsigned() {
@@ -113,7 +117,7 @@ enum PowerDrawTests {
         ioreg.value = PowerDrawFixtures.acCharging
         expect(plugin.sample().powerDraw?.macWatts == nil, "a minute after the last sample, a plug-in waits for the telemetry")
         clock.advance(by: 95)
-        expect(near(plugin.sample().powerDraw?.macWatts, 45.4), "95 s after the change the telemetry is used")
+        expect(near(plugin.sample().powerDraw?.macWatts, 27.516), "95 s after the change the telemetry is used")
     }
 
     /// Review scenario A: the tab was last shown on battery, then the Mac sat on the charger for
@@ -123,7 +127,7 @@ enum PowerDrawTests {
         _ = plugin.sample()
         clock.advance(by: 3 * 60 * 60)
         ioreg.value = PowerDrawFixtures.acCharging
-        expect(near(plugin.sample().powerDraw?.macWatts, 45.4), "after three hours unseen, the source change is not fresh")
+        expect(near(plugin.sample().powerDraw?.macWatts, 27.516), "after three hours unseen, the source change is not fresh")
     }
 
     /// Review scenario B: plugged in just before the tab opened, closed, reopened at 30 s.
