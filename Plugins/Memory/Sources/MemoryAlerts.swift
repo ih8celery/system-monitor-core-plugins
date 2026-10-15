@@ -49,9 +49,13 @@ struct MemoryAlertConfig: Equatable {
 struct MemoryAlertRules {
     /// A collect lands at most this far from the one before, so a window this much short is full.
     private static let coverageSlack = MemorySampling.backgroundInterval
+    /// Samples further apart than this (a sleep, a stall) leave a hole the rule will not bridge.
+    private static let longestGap = 3 * MemorySampling.backgroundInterval
+    private static let quietSamplesAllowed = 1
 
     let config: MemoryAlertConfig
-    private var worstPressure: MemoryPressureLevel = .normal
+    /// The highest level already announced since pressure last read Normal.
+    private var announcedPressure: MemoryPressureLevel = .normal
     private var isSwapping = false
     private var swapWatch: SwapHistory
 
@@ -68,13 +72,17 @@ struct MemoryAlertRules {
         return (next, notifications)
     }
 
-    /// Fires on rising into warning or critical. Easing down fires nothing but lowers what the
-    /// rule remembers, so the next rise fires again. An unreadable level changes nothing.
+    /// Fires on rising into warning or critical, each once until pressure has read Normal again:
+    /// easing from critical to warning re-arms nothing, so a level that flickers between the two
+    /// is one notification each. An unreadable level changes nothing.
     private mutating func pressureCrossing(_ reading: MemoryReading) -> PluginNotification? {
         guard let level = reading.pressure else { return nil }
-        let before = worstPressure
-        worstPressure = level
-        guard level.severity > before.severity else { return nil }
+        guard level != .normal else {
+            announcedPressure = .normal
+            return nil
+        }
+        guard level.severity > announcedPressure.severity else { return nil }
+        announcedPressure = level
         switch level {
         case .normal:
             return nil
@@ -93,22 +101,31 @@ struct MemoryAlertRules {
         }
     }
 
-    /// Fires when the swap traffic averaged over the whole window reaches the threshold, once,
-    /// and again only after it has dropped below it.
+    /// Fires when swapping has held at or above the threshold for the whole window: every
+    /// stretch between samples at the rate, allowing one quiet sample (the kernel counts in
+    /// bursts). One burst, or a window that is short or has a hole in it (a sleep), is not it.
+    /// Fires once, and again only after the condition has lapsed.
     private mutating func swapCrossing(_ reading: MemoryReading) -> PluginNotification? {
         swapWatch = swapWatch.recording(reading.memory, at: reading.sampledAt)
-        let windowIsFull = swapWatch.span >= swapWatch.window - Self.coverageSlack
-        let activity = swapWatch.activity
-        let moved = Double(activity.bytesOut + activity.bytesIn)
-        let perMinute = moved / (swapWatch.window / 60) / 1_048_576
-        let isAbove = windowIsFull && perMinute >= config.swapMegabytesPerMinute
+        let isAbove = hasSustainedSwapping()
         defer { isSwapping = isAbove }
         guard isAbove, !isSwapping else { return nil }
         return PluginNotification(
             id: "memory.swap",
             title: "Heavy swapping",
-            body: "macOS has been moving about \(memoryByteString(UInt64(perMinute * 1_048_576))) a minute between memory and the swap file for the last \(Int(config.swapMinutes)) minutes."
+            body: "macOS has been swapping at least \(memoryByteString(UInt64(config.swapMegabytesPerMinute * 1_048_576))) a minute for the last \(Int(config.swapMinutes)) minutes."
         )
+    }
+
+    private func hasSustainedSwapping() -> Bool {
+        guard swapWatch.span >= swapWatch.window - Self.coverageSlack else { return false }
+        let thresholdBytesPerSecond = config.swapMegabytesPerMinute * 1_048_576 / 60
+        var quietSamples = 0
+        for interval in swapWatch.intervals {
+            guard interval.seconds > 0, interval.seconds <= Self.longestGap else { return false }
+            if Double(interval.bytes) / interval.seconds < thresholdBytesPerSecond { quietSamples += 1 }
+        }
+        return quietSamples <= Self.quietSamplesAllowed
     }
 }
 

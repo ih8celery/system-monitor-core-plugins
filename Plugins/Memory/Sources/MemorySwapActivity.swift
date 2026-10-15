@@ -32,8 +32,20 @@ struct SwapHistory {
         return newest.at.timeIntervalSince(oldest.at)
     }
 
-    /// A copy with one more sample, and everything a window older than it dropped.
+    /// How much swap traffic, in bytes, came between each pair of neighbouring samples, and how
+    /// long that took. A counter that went backwards counts as no movement.
+    var intervals: [(seconds: TimeInterval, bytes: UInt64)] {
+        zip(samples, samples.dropFirst()).map { older, newer in
+            (newer.at.timeIntervalSince(older.at), (newer.ins - min(newer.ins, older.ins)) + (newer.outs - min(newer.outs, older.outs)))
+        }
+    }
+
+    /// A copy with one more sample, and everything a window older than it dropped. A sample whose
+    /// counters are both zero is a failed read (a machine that has swapped at all never reads
+    /// zero), and is dropped: kept, it would become the oldest sample and make the count since
+    /// boot look like the last minute.
     func recording(_ memory: MemorySnapshot, at date: Date) -> SwapHistory {
+        guard memory.swapInsTotal > 0 || memory.swapOutsTotal > 0 else { return self }
         let cutoff = date.addingTimeInterval(-window)
         var next = SwapHistory(window: window)
         next.samples = samples.filter { $0.at >= cutoff }

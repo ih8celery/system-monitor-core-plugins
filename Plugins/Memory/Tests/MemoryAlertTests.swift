@@ -12,12 +12,16 @@ enum MemoryAlertTests {
         testPressureFiresOnCrossingIntoWarning()
         testPressureEscalatesToCritical()
         testPressureFiresAgainAfterRecovery()
+        testPressureRearmsOnlyAtNormal()
         testUnknownPressureChangesNothing()
         testPressureRuleCanBeTurnedOff()
         testSwapFiresAfterSustainedRate()
         testBriefSwapBurstDoesNotFire()
         testSwapFiresOnceWhileItStaysHigh()
         testSwapRuleCanBeTurnedOff()
+        testSwapVerdictDoesNotDependOnCadence()
+        testSwapAfterALongGapFiresNothing()
+        testOneQuietSampleIsAllowedButNotTwo()
         testNotificationIdsAreStable()
         testPluginPostsThroughTheHost()
     }
@@ -86,6 +90,15 @@ enum MemoryAlertTests {
         expect(down.map(\.id) == ["memory.pressure.critical"], "easing from critical to warning is not news, got \(down.map(\.id))")
     }
 
+    /// Re-arming only at Normal keeps a level that flickers between warning and critical to one
+    /// notification each, instead of one per flicker.
+    private static func testPressureRearmsOnlyAtNormal() {
+        let flicker = post([reading(0, pressure: .critical), reading(3, pressure: .warning), reading(6, pressure: .critical), reading(9, pressure: .warning)])
+        expect(flicker.map(\.id) == ["memory.pressure.critical"], "critical, warning, critical again without passing Normal fires once, got \(flicker.map(\.id))")
+        let rearmed = post([reading(0, pressure: .critical), reading(3, pressure: .warning), reading(6), reading(9, pressure: .critical)])
+        expect(rearmed.map(\.id) == ["memory.pressure.critical", "memory.pressure.critical"], "after Normal the next rise fires again, got \(rearmed.map(\.id))")
+    }
+
     private static func testPressureFiresAgainAfterRecovery() {
         let posted = post([reading(0, pressure: .warning), reading(3), reading(6, pressure: .warning)])
         expect(posted.count == 2, "after pressure returns to normal, the next crossing fires again, got \(posted.count)")
@@ -118,10 +131,8 @@ enum MemoryAlertTests {
     }
 
     private static func testBriefSwapBurstDoesNotFire() {
-        let burst = [reading(0, swapped: 0), reading(10, swapped: 2_000 * mb)] + stride(from: 20, through: 300, by: 10).map { reading(TimeInterval($0), swapped: 2_000 * mb) }
-        expect(post(burst).count == 1, "a burst early in the window averages out over time, so it fires only while it still dominates the window")
-        let later = burst + stride(from: 310, through: 700, by: 10).map { reading(TimeInterval($0), swapped: 2_000 * mb) }
-        expect(post(later).count == 1, "and does not fire again once the burst has left the window")
+        let burst = [reading(0, swapped: 0), reading(10, swapped: 2_000 * mb)] + stride(from: 20, through: 900, by: 10).map { reading(TimeInterval($0), swapped: 2_000 * mb) }
+        expect(post(burst).isEmpty, "one big burst is not swapping for N minutes: nothing fires, now or when the window fills, got \(post(burst).map(\.id))")
     }
 
     private static func testSwapFiresOnceWhileItStaysHigh() {
@@ -140,6 +151,42 @@ enum MemoryAlertTests {
         let second = post([reading(900, pressure: .warning, swapped: 900 * mb)])
         expect(first.map(\.id) == second.map(\.id) && first.map(\.id) == ["memory.pressure.warning"], "an id carries no reading, time or UUID")
         expect(first.first?.title.isEmpty == false && first.first?.body.isEmpty == false, "and every notification has a title and a body")
+    }
+
+    private static func swapAt(step: Int, megabytesPerMinute: UInt64, minutes: Int) -> [MemoryReading] {
+        steady(megabytesPerMinute, minutes: minutes, step: step)
+    }
+
+    private static func testSwapVerdictDoesNotDependOnCadence() {
+        for rate in [60, 120] as [UInt64] {
+            let visible = post(swapAt(step: 3, megabytesPerMinute: rate, minutes: 6)).map(\.id)
+            let hidden = post(swapAt(step: 10, megabytesPerMinute: rate, minutes: 6)).map(\.id)
+            expect(visible == hidden, "\(rate) MB a minute reads the same sampled every 3 s or every 10 s, got \(visible) and \(hidden)")
+        }
+        expect(post(swapAt(step: 3, megabytesPerMinute: 120, minutes: 6)).map(\.id) == ["memory.swap"], "and the high rate fires at either cadence")
+    }
+
+    private static func testSwapAfterALongGapFiresNothing() {
+        let busy = swapAt(step: 10, megabytesPerMinute: 500, minutes: 4)
+        let resumed = reading(busy.last!.sampledAt.timeIntervalSince1970 + 7_200, swapped: 100_000 * mb)
+        expect(post(busy + [resumed]).isEmpty, "the first sample after a two-hour gap (sleep) cannot make a rate, so nothing fires")
+        let afterSleep = busy + [resumed] + stride(from: 10, through: 100, by: 10).map {
+            reading(resumed.sampledAt.timeIntervalSince1970 + TimeInterval($0), swapped: 100_000 * mb + UInt64($0) * 500 * mb / 60)
+        }
+        expect(post(afterSleep).isEmpty, "and the window must fill again after the gap before the rule can fire")
+    }
+
+    /// One sample's rate may dip under the threshold (the kernel counts in bursts); two may not.
+    private static func testOneQuietSampleIsAllowedButNotTwo() {
+        func withQuiet(_ quietSeconds: [Int]) -> [MemoryReading] {
+            var total: UInt64 = 0
+            return stride(from: 0, through: 300, by: 10).map { seconds in
+                if seconds > 0 && !quietSeconds.contains(seconds) { total += 40 * mb }
+                return reading(TimeInterval(seconds), swapped: total)
+            }
+        }
+        expect(post(withQuiet([150])).map(\.id) == ["memory.swap"], "one quiet sample in the window still fires")
+        expect(post(withQuiet([150, 160])).isEmpty, "two quiet samples do not")
     }
 
     private static func testPluginPostsThroughTheHost() {

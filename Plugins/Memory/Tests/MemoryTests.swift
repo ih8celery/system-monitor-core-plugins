@@ -29,6 +29,7 @@ enum MemoryTests {
         testSwapLineShowsBytesMovedInTheLastMinute()
         testSwapActivityForgetsWhatIsOlderThanAMinute()
         testSwapCounterResetShowsNothing()
+        testFailedReadDoesNotBecomeTheSwapBaseline()
         MemoryHistoryTests.runAll()
         MemoryAlertTests.runAll()
     }
@@ -312,8 +313,8 @@ enum MemoryTests {
     }
 
     private static func testSwapActivityForgetsWhatIsOlderThanAMinute() {
-        let burst = [swapReading(at: 0, ins: 0, outs: 0), swapReading(at: 3, ins: 0, outs: 640)]
-        let later = burst + [swapReading(at: 70, ins: 0, outs: 640), swapReading(at: 73, ins: 0, outs: 640)]
+        let burst = [swapReading(at: 0, ins: 10, outs: 10), swapReading(at: 3, ins: 10, outs: 650)]
+        let later = burst + [swapReading(at: 70, ins: 10, outs: 650), swapReading(at: 73, ins: 10, outs: 650)]
         expect(swapText(burst) != nil, "a burst shows right away")
         expect(swapText(later) == nil, "and is gone once a minute has passed with no more swapping")
     }
@@ -321,5 +322,17 @@ enum MemoryTests {
     private static func testSwapCounterResetShowsNothing() {
         let reset = [swapReading(at: 0, ins: 900, outs: 900), swapReading(at: 3, ins: 0, outs: 0)]
         expect(swapText(reset) == nil, "counters that go backwards (a reboot, a failed read) do not wrap into a huge figure")
+    }
+
+    /// A failed host_statistics64 read leaves the swap counters at 0. Were that kept, it would
+    /// become the oldest sample and make the whole count since boot look like the last minute.
+    private static func testFailedReadDoesNotBecomeTheSwapBaseline() {
+        let readings = [
+            swapReading(at: 0, ins: 5_000, outs: 40_000), swapReading(at: 3, ins: 0, outs: 0),
+            swapReading(at: 6, ins: 5_000, outs: 40_000), swapReading(at: 9, ins: 5_000, outs: 40_064),
+        ]
+        expect(swapText(readings) == "Swapping \(memoryByteString(64 * page)) out, \(memoryByteString(0)) in", "a sample with zero counters is dropped, got \(swapText(readings) ?? "nil")")
+        let failedFirst = [swapReading(at: 0, ins: 0, outs: 0)] + readings.dropFirst(2)
+        expect(swapText(failedFirst) == swapText(readings), "and a failed first read does not become the baseline either, got \(swapText(failedFirst) ?? "nil")")
     }
 }
