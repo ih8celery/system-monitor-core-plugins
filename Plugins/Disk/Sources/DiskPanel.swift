@@ -28,127 +28,13 @@ struct DiskPanel: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            leftColumn
-                .padding(18)
-                .frame(width: 430)
-                .frame(maxHeight: .infinity, alignment: .topLeading)
+            DiskSpaceColumn(snapshot: snapshot, activity: plugin.activity, homeDirectory: plugin.homeDirectory)
 
             Divider().background(Color.white.opacity(0.08))
 
             rightColumn
                 .padding(16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-    }
-
-    // MARK: - Left: capacity and distribution
-
-    private var leftColumn: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(headlineText)
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                    .foregroundStyle(headlineColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                if let note = snapshot.boot?.purgeableNote {
-                    Text(note)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(spacing: 10) {
-                StatPill(label: "Snapshots", value: "\(snapshot.localSnapshotCount)")
-                if let boot = snapshot.boot {
-                    StatPill(label: "Used", value: fileByteString(boot.finderUsed))
-                    StatPill(label: "Capacity", value: fileByteString(boot.total))
-                }
-            }
-
-            activitySection
-
-            if let boot = snapshot.boot {
-                SegmentedBar(segments: capacityRows(for: boot).filter { $0.value > 0 }, total: boot.total)
-                    .frame(height: 34)
-                SegmentedLegend(rows: capacityRows(for: boot), format: Self.sizeFormat)
-
-                SectionTitle("Where the space is")
-                let distribution = DiskRows.distribution(biggest: snapshot.biggest, volume: boot, homeDirectory: plugin.homeDirectory)
-                SegmentedBar(segments: distribution.filter { $0.value > 0 }, total: boot.total)
-                    .frame(height: 20)
-                SegmentedLegend(rows: distribution, format: Self.sizeFormat)
-                if boot.purgeableNote != nil {
-                    Text("This map counts purgeable space as used, because it is on the disk, so its total reads higher than Used above.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if !snapshot.otherVolumes.isEmpty {
-                SectionTitle("Other Volumes")
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(snapshot.otherVolumes) { volume in
-                            EvidenceRow(
-                                label: volume.name,
-                                value: volume.freeText,
-                                detail: volume.usageDetail
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            Text(snapshot.status)
-                .font(.caption)
-                .foregroundStyle(snapshot.health == .ok ? .secondary : Palette.warning)
-        }
-    }
-
-    // MARK: - Activity
-
-    private var activitySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                RateCard(title: "Read", value: DiskActivity.rateText(plugin.activity.currentReadRate), color: Palette.blue)
-                RateCard(title: "Write", value: DiskActivity.rateText(plugin.activity.currentWriteRate), color: Palette.tangerine)
-            }
-            if let problem = plugin.activity.problem {
-                Text(problem)
-                    .font(.caption)
-                    .foregroundStyle(Palette.warning)
-            } else {
-                HStack(spacing: 12) {
-                    LegendLabel(text: "Read", color: Palette.blue)
-                    LegendLabel(text: "Write", color: Palette.tangerine)
-                    Spacer()
-                    ChartUnitLabel("B/s - last 2 min")
-                }
-                DualSparkline(
-                    first: plugin.activity.readRates,
-                    second: plugin.activity.writeRates,
-                    firstColor: Palette.blue,
-                    secondColor: Palette.tangerine
-                )
-                .frame(height: 64)
-            }
-        }
-    }
-
-    private var headlineText: String {
-        guard let boot = snapshot.boot else { return "Reading volumes" }
-        return boot.headline
-    }
-
-    private var headlineColor: Color {
-        guard let boot = snapshot.boot else { return .secondary }
-        switch boot.freeSpaceLevel {
-        case .good: return Palette.good
-        case .caution: return Palette.caution
-        case .critical: return Palette.critical
         }
     }
 
