@@ -15,7 +15,9 @@ struct PowerFlow: Equatable {
     let chargerToMac: FlowLink
     let chargerToBattery: FlowLink
     let batteryToMac: FlowLink
-    /// What the charger puts in: the Mac plus what the battery takes, as SystemPowerIn is.
+    /// What the charger puts in: the Mac plus what the battery takes (less what it gives), as
+    /// SystemPowerIn is. On AC it always equals the charger's arrows: charger to Mac plus charger
+    /// to battery, and the Mac's draw is charger to Mac plus battery to Mac.
     let chargerInWatts: Double?
 
     /// Nil without a charger reading from the battery driver. While `isSettling`, every arrow
@@ -28,14 +30,17 @@ struct PowerFlow: Equatable {
         let flow = battery ?? 0
         let isCharging = isSettling ? driverSaysCharging : flow >= idleBatteryWatts
         let isGiving = !isSettling && flow <= -idleBatteryWatts
+        // An idle battery lights no arrow, so it adds nothing to the sums either.
+        let counted = isCharging || isGiving ? flow : 0
 
         isPluggedIn = isExternal
         hasBattery = draw?.hasBattery ?? false
         if isExternal {
-            chargerToMac = .active(mac)
+            // While the battery gives, the charger's arrow carries only its share of the Mac.
+            chargerToMac = .active(isGiving ? mac.map { $0 + counted } : mac)
             chargerToBattery = isCharging ? .active(battery) : .inactive
             batteryToMac = isGiving ? .active(battery.map(abs)) : .inactive
-            chargerInWatts = mac.map { $0 + (battery ?? 0) }
+            chargerInWatts = mac.map { $0 + counted }
         } else {
             chargerToMac = .inactive
             chargerToBattery = .inactive

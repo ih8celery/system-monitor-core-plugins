@@ -11,6 +11,7 @@ enum PowerFlowTests {
         testSettlingShowsTheArrowsWithoutNumbers()
         testAMissingFigureShowsItsArrowWithoutANumber()
         testABatteryHelpingTheChargerFeedsTheMacToo()
+        testAnIdleBatteryCountsAsNothingInTheSums()
         testNoChargerReadingMeansNoPicture()
         testTheDrawSectionSaysWhyItHasNoFigures()
         testCollectCarriesTheSettleWindow()
@@ -34,6 +35,9 @@ enum PowerFlowTests {
         expect(near(picture?.chargerToBattery, 50.220), "and the battery 50.2 W")
         expect(picture?.batteryToMac == .inactive, "the battery gives nothing while charging")
         expect(picture.flatMap(\.chargerInWatts).map { abs($0 - 77.736) < 0.01 } == true, "the charger puts in the sum, 77.7 W, as SystemPowerIn showed")
+        if case .active(let toMac?) = picture?.chargerToMac, case .active(let toBattery?) = picture?.chargerToBattery {
+            expect(abs(toMac + toBattery - (picture?.chargerInWatts ?? 0)) < 0.001, "the charger's two arrows add up to what it puts in")
+        }
     }
 
     private static func testACHeldFlowsToTheMacWithTheBatteryIdle() {
@@ -74,6 +78,24 @@ enum PowerFlowTests {
         let picture = PowerFlow(draw: draw, isExternal: true, isSettling: false)
         expect(picture?.batteryToMac == .active(16) && picture?.chargerToBattery == .inactive, "a battery topping up the charger feeds the Mac")
         expect(picture?.chargerInWatts == 94, "and the charger puts in the rest, 110 - 16 W")
+        expect(picture?.chargerToMac == .active(94), "the charger's arrow carries only its share, 94 W, got \(String(describing: picture))")
+    }
+
+    private static func testAnIdleBatteryCountsAsNothingInTheSums() {
+        // Arrange: on AC, a battery trickle under the idle line either way.
+        let trickleIn = PowerDraw(macWatts: 40, batteryWatts: 0.04, chargerRatedWatts: 94)
+        let trickleOut = PowerDraw(macWatts: 40, batteryWatts: -0.04, chargerRatedWatts: 94)
+
+        // Act
+        let charging = PowerFlow(draw: trickleIn, isExternal: true, isSettling: false)
+        let giving = PowerFlow(draw: trickleOut, isExternal: true, isSettling: false)
+
+        // Assert
+        for picture in [charging, giving] {
+            expect(picture?.chargerToBattery == .inactive && picture?.batteryToMac == .inactive, "an idle battery lights no arrow, got \(String(describing: picture))")
+            expect(picture?.chargerToMac == .active(40), "the charger feeds the Mac all 40 W")
+            expect(picture?.chargerInWatts == 40, "and the charger's input matches its one arrow, got \(String(describing: picture?.chargerInWatts))")
+        }
     }
 
     private static func testTheDrawSectionSaysWhyItHasNoFigures() {
